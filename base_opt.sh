@@ -1,7 +1,7 @@
 # base_opt.sh
-# Version 1.1.2
-# 2023-07-18 @ 03:07 (UTC)
-# ID: fi18w
+# Version 1.1.3
+# 2024-08-25 @ 15:50 (UTC)
+# ID: dh8j0
 # Written by @jpzex (XDA & Telegram)
 # Use at your own risk, Busybox is required.
 
@@ -19,24 +19,6 @@ dryrun=0
 
 scriptname=base_opt
 
-prep(){
-
-sync
-
-np=/dev/null
-
-which busybox > $np
-
-[ $? != 0 ] && echo "No busybox found, please install it first. If you just installed, a reboot may be necessary." && exit 1
-
-alias_list="mountpoint awk echo grep chmod fstrim cat mount uniq"
-
-for x in $alias_list; do
-    alias $x="busybox $x";
-done
-
-}
-
 # Generic optimizations.
 # May not affect battery usage, just remove bottlenecks.
 
@@ -45,7 +27,8 @@ main_opt(){
 M1 # ext4 and f2fs mountpoints
 M2 # sysctl (generic)
 M4 # I/O 
-}
+
+} # other modules are present on batt_opt and game_opt
 
 #===================================================#
 #===================================================#
@@ -84,20 +67,20 @@ unset x mpts
 #===================================================#
 #===================================================#
 
-# Module 2: Sysctl Tweaks
+# Module 2: Sysctl Tweaks for better memory management
 
 M2(){
 
 sys=/proc/sys
 
 fs_base(){
-wr $sys/fs/aio-max-nr 131072 #65536 def
-wr $sys/fs/file-max 65536 # sug
-wr $sys/fs/inode-max 524288 #262144 sug
-wr $sys/fs/nr_open 2097152 #1048576 def
-wr $sys/fs/inotify/max_queued_events 1048576 #16384 def
-#wr $sys/fs/inotify/max_user_instances 1024 # 128 def
-#wr $sys/fs/inotify/max_user_watches 1048576 #8192 def
+wr $sys/fs/aio-max-nr 32768 #65536 def
+wr $sys/fs/file-max 32768 # 327680 def
+wr $sys/fs/inode-max 131072 # 4x file-max sug
+wr $sys/fs/nr_open 524288 #1048576 def
+wr $sys/fs/inotify/max_queued_events 8192 #16384 def
+wr $sys/fs/inotify/max_user_instances 64 # 128 def
+wr $sys/fs/inotify/max_user_watches 4096 #8192 def
 }
 
 kernel_base(){
@@ -105,8 +88,7 @@ wr $sys/kernel/ctrl-alt-del 0
 wr $sys/kernel/dmesg_restrict 1
 wr $sys/kernel/panic 30 # 60 sug 5 def
 wr $sys/kernel/panic_on_oops 1
-wr $sys/kernel/perf_cpu_time_max_percent 10 #def 25
-wr $sys/kernel/perf_event_mlock_kb 516 #def 516
+wr $sys/kernel/perf_cpu_time_max_percent 1 #def 25
 wr $sys/kernel/printk "0 0 0 0"
 wr $sys/kernel/sched_child_runs_first 0
 wr $sys/kernel/sched_rr_timeslice_ms 50 # 30 def
@@ -116,14 +98,14 @@ wr $sys/kernel/sched_rt_runtime_us "-1" # 950000 def
 
 net_base(){
 wr $sys/net/core/netdev_max_backlog 16384 # sug
-wr $sys/net/core/rmem_default 1048576 # sug
-wr $sys/net/core/rmem_max 2097152 # manual
+wr $sys/net/core/rmem_default 131072
+wr $sys/net/core/rmem_max 524288
 wr $sys/net/core/somaxconn 8192 #8192 sug
-wr $sys/net/core/wmem_default 1048576 # mirr rmem
-wr $sys/net/core/wmem_max 2097152 # mirr rmem
+wr $sys/net/core/wmem_default 131072
+wr $sys/net/core/wmem_max 524288
+wr $sys/net/ipv4/ip_forward 1 # resets all config
 wr $sys/net/ipv4/ipfrag_high_thresh 8388608
 wr $sys/net/ipv4/ipfrag_low_thresh 4194304
-wr $sys/net/ipv4/ip_forward 1
 wr $sys/net/ipv4/ip_no_pmtu_disc 1
 wr $sys/net/ipv4/ipfrag_max_dist 128
 wr $sys/net/ipv4/ipfrag_time 3
@@ -159,26 +141,25 @@ wr $sys/net/ipv4/tcp_tw_reuse 0
 wr $sys/net/ipv4/tcp_window_scaling 1
 wr $sys/net/ipv4/tcp_rmem "131072 1048576 2097152" #Cloudflare + nateware inspired
 wr $sys/net/ipv4/tcp_wmem "131072 1048576 2097152" #mirr rmem
-wr $sys/net/ipv4/udp_rmem_min 16384
-wr $sys/net/ipv4/udp_wmem_min 16384
+wr $sys/net/ipv4/udp_rmem_min 8192
+wr $sys/net/ipv4/udp_wmem_min 8192
 }
 
 vm_base(){
-wr $sys/vm/admin_reserve_kbytes 4096 # 8192 def 4096 last
+wr $sys/vm/admin_reserve_kbytes 8192 # 8192 def 4096 last
 wr $sys/vm/block_dump 0
-wr $sys/vm/compact_memory 1
-wr $sys/vm/extfrag_threshold 250 # 500 def
+wr $sys/vm/extfrag_threshold 400 # 500 def
 wr $sys/vm/extra_free_kbytes 16384 # 65536 last
 wr $sys/vm/highmem_is_dirtyable 1
-wr $sys/vm/min_free_kbytes 4096 #$(($msize/200)) # 0.5% mem
+wr $sys/vm/min_free_kbytes 8192
+wr $sys/vm/mmap_min_addr 65536
 wr $sys/vm/laptop_mode 0
 wr $sys/vm/lowmem_reserve_ratio "16 16" # 32 32 def
 wr $sys/vm/oom_kill_allocating_task 0
 wr $sys/vm/oom_dump_tasks 0
 wr $sys/vm/panic_on_oom 0
-wr $sys/vm/page-cluster 0 # 12 last
-wr $sys/vm/stat_interval 10
-wr $sys/vm/user_reserve_kbytes 8192 # 4096 last # def 3% mem
+wr $sys/vm/stat_interval 5
+wr $sys/vm/user_reserve_kbytes 8192 # def 3% mem
 }
 
 fs_base
@@ -193,34 +174,34 @@ unset sys fs_base kernel_base net_base vm_base
 #===================================================#
 #===================================================#
 
-# Module 4: Block I/O tweaks
+# Module 4: Block I/O tweaks to decrease overhead and improve access latency
 
 M4(){
 
 iotweak(){
 if [ -d /sys/block/$1/queue ]; then
      w="wrl /sys/block/$1/queue"
-     if [ ! "$2" -gt "$(cat /sys/block/$1/queue/max_hw_sectors_kb)" ]; then
+	 if [ ! "$2" -gt "$(cat /sys/block/$1/queue/max_hw_sectors_kb)" ]; then
           $w/max_sectors_kb $2; fi  # 1
-     $w/nr_request $3                     # 2
-     $w/read_ahead_kb $4             # 3
-     $w/nomerges $5                      # 4
-     $w/rq_affinity $6                      # 5
-     $w/iostats 0                              # decrease overhead
-     $w/add_random 0                   # help create randomness
-     $w/rotational 0                         # all flash storage
+     $w/nr_request $3               # 2
+     $w/read_ahead_kb $4            # 3
+     $w/nomerges $5                 # 4
+     $w/rq_affinity $6              # 5
+     $w/iostats 0                   # decrease overhead
+     $w/add_random 0                # help create randomness
+     $w/rotational 0                # all flash storage
 fi
 }
 
 # usually emmc
-iotweak mmcblk0 64 1024 64 0 1
+iotweak mmcblk0 1024 1024 256 1 0
 
 # usually sd card
-iotweak mmcblk1 64 1024 64 0 1
+iotweak mmcblk1 1024 1024 64 1 0
 
 # other dm partitions
 for x in $(seq 0 5); do
-    iotweak dm-$x 64 1024 64 0 1
+    iotweak dm-$x 1024 32 256 2 0
 done
 
 # the more you know...
@@ -230,14 +211,14 @@ for x in /sys/block/*; do
     w="wrl $queue/iosched"
     case $(read $queue/scheduler) in
 
-        *cfqd*)
+        *cfq*)
             wrl $queue/scheduler cfq
             $w/slice_idle 0
             $w/back_seek_max 0
             $w/back_seek_penalty 0
             $w/fifo_expire_async 5000
             $w/fifo_expire_sync 500
-            $w/low_latency 1
+            $w/low_latency 0
             $w/target_latency 0
             $w/group_idle 0
             $w/slice_async 200
@@ -248,11 +229,11 @@ for x in /sys/block/*; do
 
          *deadline*)
             wrl $queue/scheduler deadline
-            $w/fifo_batch 16
+            $w/fifo_batch 32
             $w/writes_starved 16
             $w/read_expire 500
             $w/write_expire 5000
-            $w/front_merges 0
+            $w/front_merges 1
              break;;
 
     esac
@@ -264,6 +245,22 @@ unset queue w x
 #===================================================#
 #===================================================#
 #===================================================#
+
+prep(){
+
+np=/dev/null
+
+which busybox > $np
+
+[ $? != 0 ] && echo "No busybox found, please install it first. If you just installed, a reboot may be necessary." && exit 1
+
+alias_list="mountpoint awk echo grep chmod fstrim cat mount uniq date"
+
+for x in $alias_list; do
+    alias $x="busybox $x";
+done
+
+} # end prep
 
 vars(){
 
