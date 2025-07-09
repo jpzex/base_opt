@@ -1,31 +1,32 @@
 # base_opt.sh
-# Version 1.1.4
-# 2024-11-07 @ 22:31 (UTC)
-# ID: gpekd8
+# Version 1.1.5
+# 2025-06-19 @ 21:15 (UTC)
+# ID: fks8fb
 # Written by @jpzex (XDA & Telegram)
+# With help of @InoCity (Telegram)
 # Use at your own risk, Busybox is required.
 
 #set -xv # debug
 
 ##### USER SET VARIABLES #####
 
-# Dump mode (0 or 1): log before and after for every value that is getting applied.
-dump=0
+# Dump mode (0 or 1): save a log of before and after for every value to he changed.
+local dump=0
 
-# Dry run mode (0 or 1): do not change any value, just dump before and after if dump=1.
-dryrun=0
+# Dry run mode (0 or 1): do not apply any value, print on screen what it would change.
+local dryrun=0
 
 ##### DO NOT EDIT BELOW THIS LINE #####
 
-scriptname=base_opt
+local scriptname=base_opt
 
 # Generic optimizations.
 # May not affect battery usage, just remove bottlenecks.
 
 main_opt(){
 
-M1 # ext4 and f2fs mountpoints
-M2 # sysctl (generic)
+#M1 # ext4 and f2fs mountpoints
+#M2 # sysctl (generic)
 M4 # I/O 
 
 } # other modules are present on batt_opt and game_opt
@@ -39,20 +40,22 @@ M4 # I/O
 M1(){ 
 
     if [ $dryrun == 0 ]; then
-        for x in $(grep -E 'ext4|f2fs' /proc/mounts | awk '{split($2, a, "/"); print a[1] "/" a[2] "/" a[3] "&" $3}' | sed 's/\/$//' | sort -u); do
-        mpts=$(echo $x | tr '&' ' ')
+        for x in $(grep -E 'ext4|f2fs|erofs|susfs' /proc/mounts | awk '{split($2, a, "/"); print a[1] "/" a[2] "/" a[3] "&" $3}' | sed 's/\/$//' | sort -u); do
+        local mpts=$(echo $x | tr '&' ' ')
         mountpoint -q ${mpts[0]} || continue
 
         case ${mpts[1]} in
             ext4 )
-                flags=remount,noatime,nodiratime ;;
+                continue ;;
             f2fs )
-                flags=remount,noatime,nodiratime,flush_merge ;;
+                flags=flush_merge ;;
+            erofs )
+                flags=noacl,nouser_xattr,cache_strategy=readahead,dax=never ;;
             * ) 
                 continue ;;
         esac
 
-        mount -o remount,$flags ${mpts[0]}
+        mount -o remount,noatime,nodiratime,$flags ${mpts[0]}
         [ $(which fstrim) ] && fstrim ${mpts[0]} || \
         echo "${mpts[0]} fstrim error."
 
@@ -71,7 +74,7 @@ unset x mpts
 
 M2(){
 
-sys=/proc/sys
+local sys=/proc/sys
 
 fs_base(){
 wr $sys/fs/aio-max-nr 1048576 # 65536 def
@@ -85,6 +88,7 @@ wr $sys/kernel/dmesg_restrict 1
 wr $sys/kernel/panic 3 # 60 sug 5 def
 wr $sys/kernel/panic_on_oops 1
 wr $sys/kernel/perf_cpu_time_max_percent 1 #def 25
+wr $sys/kernel/perf_event_max_sample_rate 100 
 wr $sys/kernel/printk "0 0 0 0"
 wr $sys/kernel/sched_child_runs_first 0
 #wr $sys/kernel/sched_rr_timeslice_ms 50 # 30 def
@@ -93,12 +97,12 @@ wr $sys/kernel/sched_child_runs_first 0
 }
 
 net_base(){
-wr $sys/net/core/netdev_max_backlog 2048 # enough
-wr $sys/net/core/rmem_default 65536
-wr $sys/net/core/rmem_max 131072
-wr $sys/net/core/somaxconn 512
-wr $sys/net/core/wmem_default 65536
-wr $sys/net/core/wmem_max 131072
+wr $sys/net/core/netdev_max_backlog 256 # 64 OFLW 128 def
+wr $sys/net/core/rmem_default 1048576
+wr $sys/net/core/rmem_max 1048576
+wr $sys/net/core/somaxconn 256 # 128 def
+wr $sys/net/core/wmem_default 2097152
+wr $sys/net/core/wmem_max 2097152
 wr $sys/net/ipv4/ip_forward 1 # resets all config
 wr $sys/net/ipv4/ipfrag_high_thresh 8388608
 wr $sys/net/ipv4/ipfrag_low_thresh 4194304
@@ -160,12 +164,19 @@ wr $sys/vm/stat_interval 5
 wr $sys/vm/user_reserve_kbytes 2048 # def 3% mem
 }
 
+testing_keys(){
+sync
+}
+
+
 fs_base
 kernel_base
 net_base
 vm_base
 
-unset sys fs_base kernel_base net_base vm_base
+# testing_keys
+
+unset sys fs_base kernel_base net_base vm_base testing_keys
 }
 
 #===================================================#
@@ -177,67 +188,86 @@ unset sys fs_base kernel_base net_base vm_base
 M4(){
 
 iotweak(){
-if [ -d /sys/block/$1/queue ]; then
-     w="wrl /sys/block/$1/queue"
-	 if [ ! "$2" -gt "$(cat /sys/block/$1/queue/max_hw_sectors_kb)" ]; then
-          $w/max_sectors_kb $2; fi  # 1
-     $w/nr_request $3               # 2
-     $w/read_ahead_kb $4            # 3
-     $w/nomerges $5                 # 4
-     $w/rq_affinity $6              # 5
-     $w/iostats 0                   # decrease overhead
-     $w/add_random 0                # help create randomness
-     $w/rotational 0                # all flash storage
+q=$1/queue
+if [ -d $q ]; then
+    local w="wrl $q"
+    if [ ! "$2" -gt "$(cat $q/max_hw_sectors_kb)" ]; then
+    $w/max_sectors_kb $2; fi       # 1
+    $w/nr_request $3               # 2
+    $w/read_ahead_kb $4            # 3 - 128 default
+    $w/nomerges $5                 # 4 - 0 merge, 1 simple only, 2 nomerge
+    $w/rq_affinity $6              # 5 - 1 group, 2 core
+    $w/iostats 0                   # decrease overhead
+    $w/add_random 0                # help create randomness
+    $w/rotational 0                # we run flash storage
+    
+    unset w
+    local w="wrl $q/iosched"
+    
+    case "$(read $q/scheduler)" in
+
+    *"[none]"*)
+        :
+    ;;
+
+    *cfq*)
+        wrl $q/scheduler cfq
+        $w/slice_idle 0
+        $w/back_seek_max 1048576
+        $w/back_seek_penalty 1
+        $w/fifo_expire_async 2000
+        $w/fifo_expire_sync 200
+        $w/low_latency 0
+        $w/target_latency 250
+        $w/group_idle 0
+        $w/slice_async 2000
+        $w/slice_async_rq 1
+        $w/slice_sync 200
+        $w/quantum 64
+    ;;
+    
+     *mq-deadline*)
+        wrl $q/scheduler mq-deadline
+        $w/fifo_batch 32
+        $w/front_merges 1
+        $w/read_expire 500
+        $w/write_expire 5000
+        $w/writes_starved 16
+    ;;
+    
+    *deadline*)
+        wrl $q/scheduler deadline
+        $w/fifo_batch 32
+        $w/front_merges 1
+        $w/read_expire 500
+        $w/write_expire 5000
+        $w/writes_starved 16
+    ;;
+
+esac
 fi
 }
 
-# usually internal emmc
-iotweak mmcblk0 1024 1024 32 2 0
-
-# usually external sd card
-iotweak mmcblk1 1024 1024 32 2 0
-
-# usually encrypted data or system partitions
-for x in $(seq 0 5); do
-    iotweak dm-$x 1024 1 32 2 0
+hasdm=0
+# encrypted and/or logical partitions
+for x in /sys/block/dm*; do
+    hasdm=1
+    iotweak $x 1024 8 512 2 2
 done
+if [ $hasdm == 0 ]; then
+    # exposed physical device (no dm-X)
+    iotweak /sys/block/mmcblk0 1024 64 4 0 2
+    else
+    # underlying physical device (with dm-X)
+    for x in /sys/block/mmcblk0 /sys/block/sd*; do
+        iotweak $x 1024 64 512 0 2
+    done
+fi
 
-# the more you know...
+# exposed external sd card
+iotweak /sys/block/mmcblk1 256 1024 256 0 2
 
-for x in /sys/block/*; do
-    queue="$x/queue"
-    w="wrl $queue/iosched"
-    case $(read $queue/scheduler) in
-
-        *cfq*)
-            wrl $queue/scheduler cfq
-            $w/slice_idle 0
-            $w/back_seek_max 1048576
-            $w/back_seek_penalty 1
-            $w/fifo_expire_async 1000
-            $w/fifo_expire_sync 100
-            $w/low_latency 0
-            $w/target_latency 0
-            $w/group_idle 0
-            $w/slice_async 1000
-            $w/slice_async_rq 1
-            $w/slice_sync 100
-            $w/quantum 16
-            break;;
-
-         *deadline*)
-            wrl $queue/scheduler deadline
-            $w/fifo_batch 32
-            $w/writes_starved 16
-            $w/read_expire 500
-            $w/write_expire 5000
-            $w/front_merges 1
-             break;;
-
-    esac
-done
-
-unset queue w x
+unset q w x hasdm iotweak
 }
 
 #===================================================#
@@ -292,11 +322,11 @@ echo $2 > $1 && chmod 444 $1
 else
 have="have not"
 wr(){
-[ -e $1 ] && echo -e "$2 > $1" 
+[ -e $1 ] && echo -e "WR : $2 > $1" 
 }
 
 wrl(){
-wr $1 $2
+[ -e $1 ] && echo -e "WRL: $2 > $1" 
 }
 
 fi
@@ -316,7 +346,7 @@ if [ $dump == 1 ]; then
             [ $dryrun == 0 ] && $(echo -e $2 > $1 || echo "$1 write error.");
         fi
      fi
-}
+    }
 
     wrl(){
     if [ $dump == 1 ]; then
@@ -325,7 +355,7 @@ if [ $dump == 1 ]; then
              [ $dryrun == 0 ] && chmod 666 $1 && echo $2 > $1 && chmod 444 $1
         fi
     fi
-}
+    }
 
 fi # end dump
 
