@@ -1,5 +1,5 @@
 # base_opt.sh
-# Version 1.0.1
+# Version 1.0.2
 # 2021-06-22 @ 23:30 (UTC)
 # ID: 2wnukx
 # Written by jpzex@XDA
@@ -28,7 +28,7 @@ dumpE=0
 
 generic_opt(){
 M1 # ext4 and f2fs mountpoints
-M2 # sysctl (generic)
+#M2 # sysctl (generic)
 M4 # I/O
 }
 
@@ -46,10 +46,11 @@ list="/system /data /cache /data/sdext2 $root"
 
 for x in $list; do [ -e $x ] && [ ! -L $x ] && mountpoint -q $x && search " $x " /proc/mounts && list2="$x
 $list2"
+
 devlist="$(grep /dev/block /proc/mounts | grep "$x " | awk '{ print $1 }')
 $devlist"; done
 
-for x in $list2; do
+for x in $list; do
 
 case $(grep " $x " /proc/mounts | awk '{ print $3 }') in
 
@@ -67,13 +68,13 @@ nodiratime
 
 "f2fs")
 flags="
-active_logs=4
+active_logs=2
 noatime
 nodiratime
-barrier
+noacl
 ";;
 
-# noacl,flush_merge,disable_ext_identify
+# flush_merge,disable_ext_identify,nobarrier
 # nouser_xattr,no_heap,nodiscard - error when apply
 
 *)
@@ -122,41 +123,47 @@ net_generic(){
 wr $sys/net/core/netdev_max_backlog 256
 wr $sys/net/core/rmem_default 262144
 wr $sys/net/core/rmem_max 262144
-wr $sys/net/core/somaxconn 512
+wr $sys/net/core/somaxconn 32
 wr $sys/net/core/wmem_default 262144
 wr $sys/net/core/wmem_max 262144
 wr $sys/net/ipv4/ipfrag_high_thresh 8388608
 wr $sys/net/ipv4/ipfrag_low_thresh 4194304
 wr $sys/net/ipv4/ip_forward 1
-wr $sys/net/ipv4/ip_no_pmtu_disc 0
+wr $sys/net/ipv4/ip_no_pmtu_disc 1
 wr $sys/net/ipv4/ipfrag_max_dist 128
-wr $sys/net/ipv4/ipfrag_time 5
-wr $sys/net/ipv4/tcp_autocorking 1
+wr $sys/net/ipv4/ipfrag_time 3
+wr $sys/net/ipv4/min_pmtu 1460
+wr $sys/net/ipv4/tcp_autocorking 0
 wr $sys/net/ipv4/tcp_dsack 1
-wr $sys/net/ipv4/tcp_ecn 1
+wr $sys/net/ipv4/tcp_early_retrans 2
+wr $sys/net/ipv4/tcp_ecn 0
 wr $sys/net/ipv4/tcp_fack 1
-wr $sys/net/ipv4/tcp_fastopen 0
-wr $sys/net/ipv4/tcp_fin_timeout 20
+wr $sys/net/ipv4/tcp_fastopen 1
+wr $sys/net/ipv4/tcp_fin_timeout 10
 wr $sys/net/ipv4/tcp_frto 1
-wr $sys/net/ipv4/tcp_low_latency 0
-wr $sys/net/ipv4/tcp_max_orphans 128
+wr $sys/net/ipv4/tcp_keepalive_time 3600
+wr $sys/net/ipv4/tcp_keepalive_probes 3
+wr $sys/net/ipv4/tcp_low_latency 1
+wr $sys/net/ipv4/tcp_max_orphans 8192
 wr $sys/net/ipv4/tcp_max_syn_backlog 256 #fix
-wr $sys/net/ipv4/tcp_max_tw_buckets 128
-wr $sys/net/ipv4/tcp_mem "4096 4096 4096"
-wr $sys/net/ipv4/tcp_moderate_rcvbuf 1
-wr $sys/net/ipv4/tcp_mtu_probing 2
-wr $sys/net/ipv4/tcp_no_metrics_save 0 #fix
-wr $sys/net/ipv4/tcp_reordering 5
-wr $sys/net/ipv4/tcp_rfc1337 1
-wr $sys/net/ipv4/tcp_sack 0
-wr $sys/net/ipv4/tcp_synack_retries 5
+wr $sys/net/ipv4/tcp_max_tw_buckets 8192
+wr $sys/net/ipv4/tcp_mem "8192 16384 20480"
+wr $sys/net/ipv4/tcp_moderate_rcvbuf 0
+wr $sys/net/ipv4/tcp_mtu_probing 0
+wr $sys/net/ipv4/tcp_no_metrics_save 1
+wr $sys/net/ipv4/tcp_reordering 3
+wr $sys/net/ipv4/tcp_retries1 3
+wr $sys/net/ipv4/tcp_retries2 7
+wr $sys/net/ipv4/tcp_rfc1337 0
+wr $sys/net/ipv4/tcp_sack 1
+wr $sys/net/ipv4/tcp_synack_retries 3
 wr $sys/net/ipv4/tcp_timestamps 0
 wr $sys/net/ipv4/tcp_tw_recycle 0
 wr $sys/net/ipv4/tcp_tw_reuse 0
 wr $sys/net/ipv4/tcp_window_scaling 0
-wr $sys/net/ipv4/tcp_rmem "8192 131072 1048576"
-wr $sys/net/ipv4/tcp_wmem "8192 131072 1048576"
-wr $sys/net/ipv4/udp_mem "8182 131072 1048576"
+wr $sys/net/ipv4/tcp_rmem "65536 131072 1048576"
+wr $sys/net/ipv4/tcp_wmem "65536 131072 1048576"
+wr $sys/net/ipv4/udp_mem "65536 131072 1048576"
 wr $sys/net/ipv4/udp_wmem_min 65536
 wr $sys/net/ipv4/route/flush 1
 }
