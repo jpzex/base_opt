@@ -1,9 +1,19 @@
 # base_opt.sh
-# Version 1.0.3
-# 2022-05-23 @ 10:42 (UTC)
-# ID: test5
-# Written by jpzex@XDA
+# Version 1.1
+# 2022-05-27 @ 21:36 (UTC)
+# ID: RELEASE
+# Written by jpzex (XDA & Telegram)
 # Use at your own risk, Busybox is required.
+
+##### USER SET VARIABLES #####
+
+# Dump mode (0 or 1): log before and after for every value that would be applied.
+dump=0
+
+# Dry run mode (0 or 1): do not change any value, just dump before and after if dump=1.
+dryrun=0
+
+##### DO NOT EDIT BELOW THIS LINE #####
 
 which busybox > /dev/null
 
@@ -19,7 +29,6 @@ for x in $alias_list; do
 done
 
 scriptname=base_opt
-dumpE=0
 
 # Generic optimizations.
 # May not affect battery usage, just remove bottlenecks.
@@ -59,7 +68,7 @@ for x in $list; do
          *)
             break;; 
     esac
-    if [ $dumpE == 0 ]; then
+    if [ $dryrun == 0 ]; then
         for y in $flags; do
             mount -o remount,$y $x
         done
@@ -68,7 +77,7 @@ done
 
 # fstrim all existing f2fs and ext4 partitions.
 
-[ $(which fstrim) ] && [ $dumpE == 0 ] &&\
+[ $(which fstrim) ] && [ $dryrun == 0 ] &&\
 for x in $list2; do
     [ -e $x ] && mountpoint -q $x && fstrim $x
 done
@@ -225,6 +234,9 @@ done
 #===================================================#
 #===================================================#
 
+# Get RAM size in KB 
+msize=$(cat /proc/meminfo | grep "MemTotal" | awk '{ print $2 }')
+
 read(){ [ -e $1 ] && cat $1; }
 
 search(){ read $2 | grep $1 >> /dev/null; }
@@ -233,6 +245,11 @@ search(){ read $2 | grep $1 >> /dev/null; }
 # searches for string in file if it exists and returns
 # just an error code, 0 (true) for "string found" or 
 # 1 (false) for "not found". Does not print.
+
+#=DUMP=AND=DRY=RUN=START============================#
+
+if [ $dryrun == 0 ]; then
+have="have"
 
 wr(){
 [ -e $1 ] && $(echo -e $2 > $1 ||\
@@ -244,40 +261,52 @@ wrl(){
 echo $2 > $1 && chmod 444 $1
 }
 
-if [ $dumpE == 1 ]; then
+else
+have="have not"
+wr(){
+[ -e $1 ] && echo -e "$2 > $1" 
+}
+
+wrl(){
+wr $1 $2
+}
+
+fi
+
+if [ $dump == 1 ]; then
     dpath=/data/$scriptname
     for x in $dpath*; do
         [ -e $x ] && rm $x
     done
-    dump="$dpath-$(date +%Y-%m-%d).txt"
+    dpath="$dpath-$(date +%Y-%m-%d).txt"
+    dumpinfo="The dump file is located in: $dpath. The values $have been applied, according to the config on the start of the script."
 
     wr(){
-    if [ -e $1 ]; then
-        echo -e "WR - A: $1 = $(cat $1)\nWR - B: $1 = $2\n" >> $dump
-    fi
+    if [ $dump == 1 ]; then
+        if [ -e $1 ]; then
+            echo -e "WR - A: $1 = $(cat $1)\nWR - B: $1 = $2\n" >> $dpath
+            [ $dryrun == 0 ] && $(echo -e $2 > $1 || echo "$1 write error.");
+        fi
+     fi
 }
 
     wrl(){
-    if [ -e $1 ]; then
-        echo -e "WRL - A: $1 = $(cat $1)\nWRL - B: $1 = $2\n" >> $dump;
-        chmod 666 "$1"
+    if [ $dump == 1 ]; then
+        if [ -e $1 ]; then
+            echo -e "WRL - A: $1 = $(cat $1)\nWRL - B: $1 = $2\n" >> $dpath
+             [ $dryrun == 0 ] && chmod 666 $1 && echo $2 > $1 && chmod 444 $1
+        fi
     fi
 }
 
 fi # end dump
 
-marker="/data/$scriptname-last-run"
-
-if [ $dumpE == 0 ]; then
-    touch $marker; echo $(date) > $marker
-fi
-unset marker
-
-# Get RAM size in KB 
-msize=$(cat /proc/meminfo | grep "MemTotal" | awk '{ print $2 }')
+#=DUMP=AND=DRY=RUN=END==============================#
 
 generic_opt
 
-unset generic_opt dumpE msize apply dump dpath marker
+echo $dumpinfo
+
+unset generic_opt msize apply dump dryrun dpath wr wrl read search dumpinfo have
 
 exit 0
