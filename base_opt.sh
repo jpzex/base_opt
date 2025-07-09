@@ -1,7 +1,7 @@
 # base_opt.sh
-# Version 1.1.3
-# 2024-08-25 @ 15:50 (UTC)
-# ID: dh8j0
+# Version 1.1.4
+# 2024-11-07 @ 22:31 (UTC)
+# ID: gpekd8
 # Written by @jpzex (XDA & Telegram)
 # Use at your own risk, Busybox is required.
 
@@ -74,35 +74,31 @@ M2(){
 sys=/proc/sys
 
 fs_base(){
-wr $sys/fs/aio-max-nr 32768 #65536 def
-wr $sys/fs/file-max 32768 # 327680 def
-wr $sys/fs/inode-max 131072 # 4x file-max sug
-wr $sys/fs/nr_open 524288 #1048576 def
-wr $sys/fs/inotify/max_queued_events 8192 #16384 def
-wr $sys/fs/inotify/max_user_instances 64 # 128 def
-wr $sys/fs/inotify/max_user_watches 4096 #8192 def
+wr $sys/fs/aio-max-nr 1048576 # 65536 def
+wr $sys/fs/inotify/max_user_instances 8192 # 1024 def
+wr $sys/fs/inotify/max_user_watches 524288 # 10240 def
 }
 
 kernel_base(){
 wr $sys/kernel/ctrl-alt-del 0
 wr $sys/kernel/dmesg_restrict 1
-wr $sys/kernel/panic 30 # 60 sug 5 def
+wr $sys/kernel/panic 3 # 60 sug 5 def
 wr $sys/kernel/panic_on_oops 1
 wr $sys/kernel/perf_cpu_time_max_percent 1 #def 25
 wr $sys/kernel/printk "0 0 0 0"
 wr $sys/kernel/sched_child_runs_first 0
-wr $sys/kernel/sched_rr_timeslice_ms 50 # 30 def
+#wr $sys/kernel/sched_rr_timeslice_ms 50 # 30 def
 #wr $sys/kernel/sched_rt_period_us 2000000 # 1000000
-wr $sys/kernel/sched_rt_runtime_us "-1" # 950000 def
+#wr $sys/kernel/sched_rt_runtime_us "-1" # 950000 def
 }
 
 net_base(){
-wr $sys/net/core/netdev_max_backlog 16384 # sug
-wr $sys/net/core/rmem_default 131072
-wr $sys/net/core/rmem_max 524288
-wr $sys/net/core/somaxconn 8192 #8192 sug
-wr $sys/net/core/wmem_default 131072
-wr $sys/net/core/wmem_max 524288
+wr $sys/net/core/netdev_max_backlog 2048 # enough
+wr $sys/net/core/rmem_default 65536
+wr $sys/net/core/rmem_max 131072
+wr $sys/net/core/somaxconn 512
+wr $sys/net/core/wmem_default 65536
+wr $sys/net/core/wmem_max 131072
 wr $sys/net/ipv4/ip_forward 1 # resets all config
 wr $sys/net/ipv4/ipfrag_high_thresh 8388608
 wr $sys/net/ipv4/ipfrag_low_thresh 4194304
@@ -110,6 +106,7 @@ wr $sys/net/ipv4/ip_no_pmtu_disc 1
 wr $sys/net/ipv4/ipfrag_max_dist 128
 wr $sys/net/ipv4/ipfrag_time 3
 wr $sys/net/ipv4/min_pmtu 1460
+wr $sys/net/ipv4/tcp_abort_on_overflow 1
 wr $sys/net/ipv4/tcp_autocorking 0
 wr $sys/net/ipv4/tcp_dsack 1
 wr $sys/net/ipv4/tcp_early_retrans 2
@@ -121,9 +118,10 @@ wr $sys/net/ipv4/tcp_frto 1
 wr $sys/net/ipv4/tcp_keepalive_time 300 #900 sug
 wr $sys/net/ipv4/tcp_keepalive_probes 2
 wr $sys/net/ipv4/tcp_low_latency 0
-wr $sys/net/ipv4/tcp_max_orphans 8192 #8192 last
-wr $sys/net/ipv4/tcp_max_syn_backlog 8192 #nateware
+wr $sys/net/ipv4/tcp_max_orphans 8192
+wr $sys/net/ipv4/tcp_max_syn_backlog 256
 wr $sys/net/ipv4/tcp_max_tw_buckets 65536 #nateware
+wr $sys/net/ipv4/tcp_mem "8192 16384 32768" 
 wr $sys/net/ipv4/tcp_moderate_rcvbuf 1
 wr $sys/net/ipv4/tcp_mtu_probing 1
 wr $sys/net/ipv4/tcp_no_metrics_save 0
@@ -137,29 +135,29 @@ wr $sys/net/ipv4/tcp_syn_retries 2
 wr $sys/net/ipv4/tcp_synack_retries 2
 wr $sys/net/ipv4/tcp_timestamps 1
 wr $sys/net/ipv4/tcp_tw_recycle 0
-wr $sys/net/ipv4/tcp_tw_reuse 0
+wr $sys/net/ipv4/tcp_tw_reuse 1
 wr $sys/net/ipv4/tcp_window_scaling 1
-wr $sys/net/ipv4/tcp_rmem "131072 1048576 2097152" #Cloudflare + nateware inspired
-wr $sys/net/ipv4/tcp_wmem "131072 1048576 2097152" #mirr rmem
+wr $sys/net/ipv4/tcp_rmem "65536 131072 524288"
+wr $sys/net/ipv4/tcp_wmem "65536 131072 524288"
 wr $sys/net/ipv4/udp_rmem_min 8192
 wr $sys/net/ipv4/udp_wmem_min 8192
 }
 
 vm_base(){
-wr $sys/vm/admin_reserve_kbytes 8192 # 8192 def 4096 last
+wr $sys/vm/admin_reserve_kbytes 4096 # 8192 def
 wr $sys/vm/block_dump 0
-wr $sys/vm/extfrag_threshold 400 # 500 def
+wr $sys/vm/extfrag_threshold 1000 # 500 def
 wr $sys/vm/extra_free_kbytes 16384 # 65536 last
 wr $sys/vm/highmem_is_dirtyable 1
 wr $sys/vm/min_free_kbytes 8192
 wr $sys/vm/mmap_min_addr 65536
 wr $sys/vm/laptop_mode 0
-wr $sys/vm/lowmem_reserve_ratio "16 16" # 32 32 def
+wr $sys/vm/lowmem_reserve_ratio "64 64" # 32 32 def
 wr $sys/vm/oom_kill_allocating_task 0
 wr $sys/vm/oom_dump_tasks 0
 wr $sys/vm/panic_on_oom 0
 wr $sys/vm/stat_interval 5
-wr $sys/vm/user_reserve_kbytes 8192 # def 3% mem
+wr $sys/vm/user_reserve_kbytes 2048 # def 3% mem
 }
 
 fs_base
@@ -193,15 +191,15 @@ if [ -d /sys/block/$1/queue ]; then
 fi
 }
 
-# usually emmc
-iotweak mmcblk0 1024 1024 256 1 0
+# usually internal emmc
+iotweak mmcblk0 1024 1024 32 2 0
 
-# usually sd card
-iotweak mmcblk1 1024 1024 64 1 0
+# usually external sd card
+iotweak mmcblk1 1024 1024 32 2 0
 
-# other dm partitions
+# usually encrypted data or system partitions
 for x in $(seq 0 5); do
-    iotweak dm-$x 1024 32 256 2 0
+    iotweak dm-$x 1024 1 32 2 0
 done
 
 # the more you know...
@@ -214,17 +212,17 @@ for x in /sys/block/*; do
         *cfq*)
             wrl $queue/scheduler cfq
             $w/slice_idle 0
-            $w/back_seek_max 0
-            $w/back_seek_penalty 0
-            $w/fifo_expire_async 5000
-            $w/fifo_expire_sync 500
+            $w/back_seek_max 1048576
+            $w/back_seek_penalty 1
+            $w/fifo_expire_async 1000
+            $w/fifo_expire_sync 100
             $w/low_latency 0
             $w/target_latency 0
             $w/group_idle 0
-            $w/slice_async 200
-            $w/slice_async_rq 32
-            $w/quantum 32
-            $w/slice_sync 1000
+            $w/slice_async 1000
+            $w/slice_async_rq 1
+            $w/slice_sync 100
+            $w/quantum 16
             break;;
 
          *deadline*)
@@ -335,7 +333,7 @@ fi # end dump
 
 } # end vars
 
-marker="/data/$scriptname-last-run"
+marker="/data/lastrun_$scriptname"
 
 if [ $dryrun == 0 ]; then touch $marker; echo $(date) > $marker; fi
 unset marker
