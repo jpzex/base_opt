@@ -1,7 +1,7 @@
 # base_opt.sh
-# Version 1.0
-# 2021-04-15 @ 03:32 (UTC)
-# ID: 16reme
+# Version 1.0.1
+# 2021-06-22 @ 23:30 (UTC)
+# ID: 2wnukx
 # Written by jpzex@XDA
 # Use at your own risk, Busybox is required.
 
@@ -24,7 +24,7 @@ scriptname=base_opt
 dumpE=0
 
 # Generic optimizations.
-# Does not affect performance or battery.
+# May not affect battery usage, just remove bottlenecks.
 
 generic_opt(){
 M1 # ext4 and f2fs mountpoints
@@ -40,13 +40,9 @@ M4 # I/O
 
 M1(){ 
 
-# errors happened on Android 11 for this list below
-#list="/system /data /oem /cache /vendor /lta-label /efs /firmware /product /persist /sd-ext /data/sdext2"
-
 read /proc/mounts | grep " / ext4" > /dev/null && root=/
 
-#that's why I made it simpler
-list="/system /data /cache $root"
+list="/system /data /cache /data/sdext2 $root"
 
 for x in $list; do [ -e $x ] && [ ! -L $x ] && mountpoint -q $x && search " $x " /proc/mounts && list2="$x
 $list2"
@@ -59,21 +55,23 @@ case $(grep " $x " /proc/mounts | awk '{ print $3 }') in
 
 "ext4")
 flags="
-commit=30
-nodiscard
-nobarrier
+discard
+barrier
 noatime
-nodiratime";;
+nodiratime
+";;
 
 # noblock_validity,inode_readahead_blks=16
-# delalloc,auto_da_alloc
+# auto_da_alloc,commit=10,delalloc
+# max_batch_time=100000
 
 "f2fs")
 flags="
 active_logs=4
 noatime
 nodiratime
-nobarrier";;
+barrier
+";;
 
 # noacl,flush_merge,disable_ext_identify
 # nouser_xattr,no_heap,nodiscard - error when apply
@@ -108,9 +106,9 @@ sys=/proc/sys
 
 fs_generic(){
 wr $sys/fs/file-max 131072
-#wr $sys/fs/inotify/max_queued_events 16384 # better
+wr $sys/fs/inotify/max_queued_events 1048576
 #wr $sys/fs/inotify/max_user_instances 1024 # not mess
-#wr $sys/fs/inotify/max_user_watches 16384 # with this
+wr $sys/fs/inotify/max_user_watches 1048576
 }
 
 kernel_generic(){
@@ -121,50 +119,56 @@ wr $sys/kernel/printk "0 0 0 0"
 }
 
 net_generic(){
-wr $sys/net/core/netdev_max_backlog 8192
-wr $sys/net/core/rmem_default 131072
-wr $sys/net/core/rmem_max 524288
-wr $sys/net/core/somaxconn 4096
-wr $sys/net/core/wmem_default 131072
-wr $sys/net/core/wmem_max 524288
-wr $sys/net/ipv4/ip_forward 0
+wr $sys/net/core/netdev_max_backlog 256
+wr $sys/net/core/rmem_default 262144
+wr $sys/net/core/rmem_max 262144
+wr $sys/net/core/somaxconn 512
+wr $sys/net/core/wmem_default 262144
+wr $sys/net/core/wmem_max 262144
+wr $sys/net/ipv4/ipfrag_high_thresh 8388608
+wr $sys/net/ipv4/ipfrag_low_thresh 4194304
+wr $sys/net/ipv4/ip_forward 1
+wr $sys/net/ipv4/ip_no_pmtu_disc 0
+wr $sys/net/ipv4/ipfrag_max_dist 128
+wr $sys/net/ipv4/ipfrag_time 5
 wr $sys/net/ipv4/tcp_autocorking 1
-wr $sys/net/ipv4/ipfrag_time 10
-wr $sys/net/ipv4/tcp_dsack 0
-wr $sys/net/ipv4/tcp_ecn 2
-wr $sys/net/ipv4/tcp_fack 0
-wr $sys/net/ipv4/tcp_fastopen 3
-wr $sys/net/ipv4/tcp_fin_timeout 30
+wr $sys/net/ipv4/tcp_dsack 1
+wr $sys/net/ipv4/tcp_ecn 1
+wr $sys/net/ipv4/tcp_fack 1
+wr $sys/net/ipv4/tcp_fastopen 0
+wr $sys/net/ipv4/tcp_fin_timeout 20
+wr $sys/net/ipv4/tcp_frto 1
 wr $sys/net/ipv4/tcp_low_latency 0
-wr $sys/net/ipv4/tcp_max_orphans 512
-wr $sys/net/ipv4/tcp_max_syn_backlog 2048
-wr $sys/net/ipv4/tcp_max_tw_buckets 1024
+wr $sys/net/ipv4/tcp_max_orphans 128
+wr $sys/net/ipv4/tcp_max_syn_backlog 256 #fix
+wr $sys/net/ipv4/tcp_max_tw_buckets 128
+wr $sys/net/ipv4/tcp_mem "4096 4096 4096"
 wr $sys/net/ipv4/tcp_moderate_rcvbuf 1
 wr $sys/net/ipv4/tcp_mtu_probing 2
-wr $sys/net/ipv4/tcp_no_metrics_save 0
-wr $sys/net/ipv4/tcp_reordering 3
-wr $sys/net/ipv4/tcp_rfc1337 0
+wr $sys/net/ipv4/tcp_no_metrics_save 0 #fix
+wr $sys/net/ipv4/tcp_reordering 5
+wr $sys/net/ipv4/tcp_rfc1337 1
 wr $sys/net/ipv4/tcp_sack 0
-wr $sys/net/ipv4/tcp_synack_retries 8
+wr $sys/net/ipv4/tcp_synack_retries 5
 wr $sys/net/ipv4/tcp_timestamps 0
-wr $sys/net/ipv4/tcp_tw_recycle 1
-wr $sys/net/ipv4/tcp_tw_reuse 1
-wr $sys/net/ipv4/tcp_window_scaling 1
-wr $sys/net/ipv4/tcp_rmem "131072 262144 524288"
-wr $sys/net/ipv4/tcp_wmem "131072 262144 524288"
-wr $sys/net/ipv4/udp_mem "131072 262144 524288"
+wr $sys/net/ipv4/tcp_tw_recycle 0
+wr $sys/net/ipv4/tcp_tw_reuse 0
+wr $sys/net/ipv4/tcp_window_scaling 0
+wr $sys/net/ipv4/tcp_rmem "8192 131072 1048576"
+wr $sys/net/ipv4/tcp_wmem "8192 131072 1048576"
+wr $sys/net/ipv4/udp_mem "8182 131072 1048576"
 wr $sys/net/ipv4/udp_wmem_min 65536
 wr $sys/net/ipv4/route/flush 1
 }
 
 vm_generic(){
-wr $sys/vm/highmem_is_dirtyable 0
-wr $sys/vm/min_free_kbytes $((1024+$msize/1024))
-wr $sys/vm/oom_kill_allocating_task 0
+wr $sys/vm/highmem_is_dirtyable 1
+wr $sys/vm/min_free_kbytes 1024
+wr $sys/vm/oom_kill_allocating_task 1
 wr $sys/vm/oom_dump_tasks 0
 wr $sys/vm/panic_on_oom 0
-wr $sys/vm/page-cluster 0
-wr $sys/vm/stat_interval 600
+wr $sys/vm/page-cluster 1
+wr $sys/vm/stat_interval 60
 }
 
 sysctl_apply(){
@@ -187,39 +191,33 @@ unset sys fs kernel vm_generic net sysctl_apply
 
 M4(){
 
+iotweak(){
+
+w="wrl /sys/block/$1/queue"
+
+$w/max_sectors_kb $2
+$w/iostats $3 
+$w/add_random $4 
+$w/read_ahead_kb $5
+$w/nomerges $6
+$w/rotational $7
+$w/rq_affinity $8
+
+}
+
+iotweak mmcblk0 256 0 0 0 0 0 1
+iotweak mmcblk1 256 0 0 0 0 0 1
+iotweak dm-0 127 0 0 0 0 0 1
+
 for x in /sys/block/*; do
 
-queue="$x/queue"
-
-w="wrl $queue"
-
-$w/max_sectors_kb $(read $queue/max_hw_sectors_kb)
-$w/iostats 0
-$w/add_random 0
-$w/read_ahead_kb 512
-$w/nomerges 2
-$w/rotational 0
-$w/rq_affinity 1
-
-w="wrl $queue/iosched"
+w="wrl $x/queue/iosched"
 
 case $(read $queue/scheduler) in
 
-*deadline*)
+*cfqd*)
 
-wrl $queue/scheduler deadline
-
-# deadline specific tuning
-
-$w/fifo_batch 8
-$w/writes_starved 2
-$w/read_expire 500
-$w/write_expire 5000
-$w/front_merges 0;;
-
-*cfq*)
-
-wrl $queue/scheduler cfq
+wrl $x/scheduler cfq
 
 # cfq specific tuning
 
@@ -235,6 +233,18 @@ $w/slice_async 200
 $w/slice_async_rq 32
 $w/quantum 32
 $w/slice_sync 1000;;
+
+*deadline*)
+
+wrl $x/scheduler deadline
+
+# deadline specific tuning
+
+$w/fifo_batch 64
+$w/writes_starved 8
+$w/read_expire 100
+$w/write_expire 2000
+$w/front_merges 0;;
 
 *)
 
