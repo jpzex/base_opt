@@ -1,7 +1,7 @@
 # base_opt.sh
-# Version 1.1.5
-# 2025-06-19 @ 21:15 (UTC)
-# ID: fks8fb
+# Version 1.1.5-fix
+# 2025-06-20 @ 16:10 (UTC)
+# ID: doai71
 # Written by @jpzex (XDA & Telegram)
 # With help of @InoCity (Telegram)
 # Use at your own risk, Busybox is required.
@@ -25,8 +25,8 @@ local scriptname=base_opt
 
 main_opt(){
 
-#M1 # ext4 and f2fs mountpoints
-#M2 # sysctl (generic)
+M1 # ext4 and f2fs mountpoints
+M2 # sysctl (generic)
 M4 # I/O 
 
 } # other modules are present on batt_opt and game_opt
