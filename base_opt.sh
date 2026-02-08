@@ -1,10 +1,12 @@
 # base_opt.sh
-# Version 1.1.7
-# 2025-07-10 @ 15:19 (UTC)
-# ID: foa8qw
+# Version 1.1.8
+# 2026-02-08 @ 00:42 (UTC)
+# ID: h8sk2
+# Do not steal
 # Written by @jpzex (XDA & Telegram)
-# With help of @InoCity (Telegram)
-# Use at your own risk, Busybox is required.
+# with help of @InoCity (Telegram)
+# and ChatGPT (proper vibe coding is so real, guys)
+# Use at your own risk!
 
 #set -xv # debug
 
@@ -25,49 +27,43 @@ scriptname=base_opt
 
 main_opt(){
 
-M1 & # reduce mountpoint overhead
-M2 & # sysctl fs, kernel, net and vm (generic)
-M4 & # storage I/O optimization 
+M1
+M2
+M4
+M8
 
 } # the others are present on batt_opt and game_opt
 
 #===================================================#
-#===================================================#
-#===================================================#
 
-# Module 1: Set mount flags to reduce overhead and improve I/O performance
+# Module 1: Reduce overhead with new mount options 
 
-M1(){ 
-
+M1(){
     if [ $dryrun -eq 0 ]; then
-        for x in $(grep -E 'ext4|f2fs|erofs|susfs' /proc/mounts | awk '{split($2, a, "/"); print a[1] "/" a[2] "/" a[3] "&" $3}' | sed 's/\/$//' | sort -u); do
-        local mpts=$(echo $x | tr '&' ' ')
-        mountpoint -q ${mpts[0]} || continue
-
-        case ${mpts[1]} in
-            ext4 )
-                flags=commit=10 ;;
-            f2fs )
-                flags=flush_merge,background_gc=on ;;
-            erofs )
-                flags=noacl,nouser_xattr,cache_strategy=readahead,dax=never ;;
-            * ) 
-                continue ;;
-        esac
-
-        mount -o remount,noatime,nodiratime,$flags ${mpts[0]}
-        [ $(which fstrim) ] && fstrim ${mpts[0]} || \
-        echo "${mpts[0]} fstrim error."
-
-    done
-fi
-
-unset x mpts 
-
+        mnt_list=$(grep -E ' ext4 | f2fs | erofs ' /proc/mounts | awk '{print $1"&"$2"&"$3}' | sed 's/\/$//' | uniq)
+        for x in $mnt_list; do
+            mnt_dev=$(echo $x | cut -d '&' -f 1)
+            echo $mnt_dev | grep -E '/loop|/dm-' >> $np && continue
+            mnt_path=$(echo $x | cut -d '&' -f 2)
+            mountpoint -q $mnt_path || continue 
+            mnt_fs=$(echo $x | cut -d '&' -f 3)
+            case $mnt_fs in
+                ext4 )
+                    flags=commit=10 ;;
+                f2fs )
+                    flags=flush_merge,background_gc=on ;;
+                erofs )
+                    flags=noacl,nouser_xattr ;;
+                * )
+                    continue ;;
+            esac
+            mount -o remount,noatime,nodiratime,$flags $mnt_path
+            [ $(which fstrim) ] && fstrim $mnt_path
+        done
+    unset mnt_list x mnt_dev mnt_path mnt_fs flags
+    fi
 }
 
-#===================================================#
-#===================================================#
 #===================================================#
 
 # Module 2: Sysctl Tweaks for better memory management and improved networking bandwidth and stability
@@ -76,128 +72,134 @@ M2(){
 
 local sys=/proc/sys
 
-fs_base(){
-wr  $sys/fs/aio-max-nr 262144 # 65536 def
-wr  $sys/fs/inotify/max_user_instances 2048 # 1024 def
-wr  $sys/fs/inotify/max_user_watches 65536 # 10240 def
-}
+sysctl_list=$( echo "
 
-kernel_base(){
-wr  $sys/kernel/ctrl-alt-del 0
-wr  $sys/kernel/dmesg_restrict 1
-wr  $sys/kernel/panic 5 # 60 sug 5 def
-wr  $sys/kernel/panic_on_oops 1
-wr  $sys/kernel/perf_cpu_time_max_percent 1 #def 25
-wr  $sys/kernel/perf_event_max_sample_rate 100 
-wr  $sys/kernel/printk "0 0 0 0"
-wr  $sys/kernel/sched_latency_ns 6000000
-wr  $sys/kernel/sched_min_granularity_ns 1000000
-wr  $sys/kernel/sched_rr_timeslice_ms 150 # 30 def
-wr  $sys/kernel/sched_rt_period_us 1000000 # 1000000
-wr  $sys/kernel/sched_rt_runtime_us "-1" # 950000 def
-}
+# FS
+fs.aio-max-nr = 262144
+fs.epoll.max_user_watches = 32768
+fs.inotify.max_user_watches = 262144
+fs.inotify.max_user_instances = 512
+fs.mount-max = 100000
 
-net_base(){
-wr  $sys/net/core/netdev_max_backlog 512 # 64 OFLW 128 def
-wr  $sys/net/core/rmem_default 262144
-wr  $sys/net/core/rmem_max 1048576    
-wr  $sys/net/core/somaxconn 256 # 128 def
-wr  $sys/net/core/wmem_default 262144
-wr  $sys/net/core/wmem_max 1048576
-wr  $sys/net/ipv4/ip_forward 1 # runs earlier because it may reset ipv4 configs
-wr  $sys/net/ipv4/ip_no_pmtu_disc 0
-wr  $sys/net/ipv4/ipfrag_max_dist 128
-wr  $sys/net/ipv4/ipfrag_time 3
-wrl $sys/net/ipv4/min_pmtu 1400
-wr  $sys/net/ipv4/tcp_abort_on_overflow 0
-wr  $sys/net/ipv4/tcp_autocorking 1
-wr  $sys/net/ipv4/tcp_dsack 1
-wr  $sys/net/ipv4/tcp_early_retrans 2
-wr  $sys/net/ipv4/tcp_ecn 0
-wr  $sys/net/ipv4/tcp_fack 1
-wr  $sys/net/ipv4/tcp_fastopen 3
-wr  $sys/net/ipv4/tcp_fin_timeout 10 # 5 nateware, 10 keep TIME_WAIT for longer AI
-wr  $sys/net/ipv4/tcp_frto 1
-wr  $sys/net/ipv4/tcp_keepalive_time 600 #900 sug
-wr  $sys/net/ipv4/tcp_keepalive_probes 2
-wr  $sys/net/ipv4/tcp_low_latency 0
-wr  $sys/net/ipv4/tcp_max_orphans 8192
-wr  $sys/net/ipv4/tcp_max_syn_backlog 256
-wr  $sys/net/ipv4/tcp_max_tw_buckets 4096
-wr  $sys/net/ipv4/tcp_mem "131072 262144 524288" 
-wr  $sys/net/ipv4/tcp_moderate_rcvbuf 1
-wr  $sys/net/ipv4/tcp_mtu_probing 2 # always probe mtu
-wr  $sys/net/ipv4/tcp_no_metrics_save 0
-wr  $sys/net/ipv4/tcp_reordering 5
-wr  $sys/net/ipv4/tcp_retries1 3
-wr  $sys/net/ipv4/tcp_retries2 8
-wr  $sys/net/ipv4/tcp_rfc1337 0
-wr  $sys/net/ipv4/tcp_sack 1
-wr  $sys/net/ipv4/tcp_slow_start_after_idle 1 #nateware
-wr  $sys/net/ipv4/tcp_syn_retries 2
-wr  $sys/net/ipv4/tcp_synack_retries 2
-wr  $sys/net/ipv4/tcp_timestamps 1
-wrl $sys/net/ipv4/tcp_tw_recycle 0
-wr  $sys/net/ipv4/tcp_tw_reuse 1
-wr  $sys/net/ipv4/tcp_window_scaling 1
-wr  $sys/net/ipv4/tcp_rmem "8192 131072 1048576"
-wr  $sys/net/ipv4/tcp_wmem "8192 131072 1048576"
-wr  $sys/net/ipv4/udp_rmem_min 16384
-wr  $sys/net/ipv4/udp_wmem_min 16384
-}
+# Kernel
+kernel.bpf_stats_enabled = 0
+kernel.ctrl-alt-del = 0
+kernel.dmesg_restrict = 1
+kernel.ftrace_dump_on_oops = 0
+kernel.hung_task_timeout_secs = 0
+kernel.perf_cpu_time_max_percent = 1
+kernel.perf_event_max_sample_rate = 1
+kernel.perf_event_paranoid = 3
+kernel.print-fatal-signals = 0
+kernel.printk = 0 0 0 0
+kernel.printk_delay = 0
+kernel.printk_devkmsg = off
+kernel.printk_ratelimit = 0
+kernel.printk_ratelimit_burst = 0
+kernel.sched_autogroup_enabled = 1
+kernel.sched_force_lb_enable = 0
+kernel.sched_schedstats = 0
+kernel.sched_tunable_scaling = 1
+kernel.sched_util_clamp_max = 1024
+kernel.sched_util_clamp_min = 0
+kernel.soft_watchdog = 0
+kernel.softlockup_panic = 0
+kernel.tracepoint_printk = 0
+kernel.warn_limit = 0
+kernel.watchdog = 0
 
-vm_base(){
-wr  $sys/vm/admin_reserve_kbytes 6144 # 8192 def, slight decrease for more free RAM
-wr  $sys/vm/block_dump 0 # decrease logging
-wr  $sys/vm/extfrag_threshold 1000 # 500 def, increased to allow more ram fragmentation and reduce CPU usage
-wr  $sys/vm/extra_free_kbytes 6144
-wr  $sys/vm/min_free_kbytes 6144
-wr  $sys/vm/laptop_mode 0 # we run flash storage
-wr  $sys/vm/oom_kill_allocating_task 0 # let LMK do the job
-wr  $sys/vm/oom_dump_tasks 0 # decrease logging
-wr  $sys/vm/panic_on_oom 0 # the kernel can handle OOMs
-wr  $sys/vm/stat_interval 5 # less frequent updates
-wr  $sys/vm/user_reserve_kbytes 6144 # def 3% mem
-}
+# Net core
+net.core.busy_read = 0
+net.core.busy_poll = 0
+net.core.dev_weight = 64
+net.core.high_order_alloc_disable = 0
+net.core.netdev_budget = 300
+net.core.netdev_budget_usecs = 4000
+net.core.somaxconn = 512
 
-fs_base &
-kernel_base &
-net_base &
-vm_base &
+# Net IPv4 behavior
+net.ipv4.ip_no_pmtu_disc = 0
+net.ipv4.ipfrag_max_dist = 128
+net.ipv4.ipfrag_time = 3
+net.ipv4.min_pmtu = 1400
+net.ipv4.tcp_abort_on_overflow = 0
+net.ipv4.tcp_autocorking = 1
+net.ipv4.tcp_dsack = 1
+net.ipv4.tcp_early_retrans = 2
+net.ipv4.tcp_ecn = 0
+net.ipv4.tcp_fack = 1
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_frto = 1
+net.ipv4.tcp_keepalive_intvl = 20
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_low_latency = 0
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_mtu_probing = 2
+net.ipv4.tcp_no_metrics_save = 0
+net.ipv4.tcp_orphan_retries = 4
+net.ipv4.tcp_reordering = 5
+net.ipv4.tcp_retries1 = 3
+net.ipv4.tcp_retries2 = 8
+net.ipv4.tcp_rfc1337 = 0
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_syn_retries = 2
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_window_scaling = 1
 
-unset sys fs_base kernel_base net_base vm_base
+# Netfilter behavior
+net.netfilter.nf_conntrack_acct = 0
+net.netfilter.nf_conntrack_events = 0
+net.netfilter.nf_conntrack_helper = 0
+net.netfilter.nf_conntrack_log_invalid = 0
+net.netfilter.nf_conntrack_tcp_timeout_established = 600
+
+# VM (non-memory steering)
+vm.block_dump = 0
+vm.extfrag_threshold = 1000
+vm.laptop_mode = 0
+vm.oom_kill_allocating_task = 0
+vm.oom_dump_tasks = 0
+vm.panic_on_oom = 0
+vm.stat_interval = 10
+
+
+" | tr ' ' '&')
+
+for x in $sysctl_list; do
+detr=$(echo $x | tr '&' ' ')
+key=$(echo $detr | cut -d '=' -f 1 | tr '.' '/')
+value=$(echo $detr | cut -d '=' -f 2)
+wrs $sys/$key "$value"
+done
+
+unset x sys sysctl_list detr key value
 }
 
 #===================================================#
-#===================================================#
-#===================================================#
 
-# Module 4: Block I/O tweaks to decrease overhead and improve transfer bandwidth and latency
+# Module 4: Storage devices tweaks to decrease overhead, improve transfer bandwidth and latency
 
 M4(){
 
 iotweak(){
 q=$1/queue
-if [ -d $q ]; then
-    local w="wrl $q/iosched"
-    
-    case "$(readf $q/scheduler)" in
 
-    *"[none]"*)
-        :
+if [ -d $q ]; then
+    newio=$2
+    local w="wr $q/iosched"
+    if grep "$2" "$q/scheduler"; then 
+    case "$2" in
+
+    none)
+       wr $q/scheduler none
     ;;
     
-    *bfq*)
-        wrl $q/scheduler bfq
-        $w/back_seek_max 0
-        $w/low_latency 0
-        $w/slice_idle 0
-        $w/quantum 8
-        $w/strict_guarantees 0
-    ;;
-    
-    *mq-deadline*)
-        wrl $q/scheduler mq-deadline
+    mq-deadline)
+        wr $q/scheduler mq-deadline
         $w/fifo_batch 32
         $w/front_merges 1
         $w/read_expire 500
@@ -205,8 +207,8 @@ if [ -d $q ]; then
         $w/writes_starved 16
     ;;
     
-    *cfq*)
-        wrl $q/scheduler cfq
+    cfq)
+        wr $q/scheduler cfq
         $w/slice_idle 0
         $w/back_seek_max 1048576
         $w/back_seek_penalty 1
@@ -221,8 +223,8 @@ if [ -d $q ]; then
         $w/quantum 8
     ;;
     
-    *deadline*)
-        wrl $q/scheduler deadline
+    deadline)
+        wr $q/scheduler deadline
         $w/fifo_batch 32
         $w/front_merges 1
         $w/read_expire 500
@@ -230,17 +232,26 @@ if [ -d $q ]; then
         $w/writes_starved 16
     ;;
 
-    esac
+    bfq)
+        wr $q/scheduler bfq
+        $w/back_seek_max 0
+        $w/low_latency 0
+        $w/slice_idle 0
+        $w/quantum 8
+        $w/strict_guarantees 0
+    ;;
 
-    unset w
+    esac
+    fi
+    unset w newio
     
     local w="wrl $q"
-    if [ ! "$2" -gt "$(cat $q/max_hw_sectors_kb)" ]; then
-    $w/max_sectors_kb $2; fi       # 128 default
-    $w/nr_requests $3              # 128 default
-    $w/read_ahead_kb $4            # 128 default
-    $w/nomerges $5                 # 0 merge, 1 simple only, 2 nomerge
-    $w/rq_affinity $6              # 1 group, 2 core
+    if [ ! "$3" -gt "$(cat $q/max_hw_sectors_kb)" ]; then
+    $w/max_sectors_kb $3; fi       # 128 default
+    $w/nr_requests $4              # 128 default
+    $w/read_ahead_kb $5            # 128 default
+    $w/nomerges $6                 # 0 merge, 1 simple only, 2 nomerge
+    $w/rq_affinity $7              # 1 group, 2 core
     $w/iostats 0                   # decrease overhead
     $w/add_random 0                # help create randomness
     $w/rotational 0                # 0 flash, 1 hdd
@@ -248,46 +259,109 @@ if [ -d $q ]; then
 fi
 }
 
-hasdm=0
-# encrypted and/or logical partitions
-for x in /sys/block/dm*; do
-    hasdm=1
-    iotweak $x 1024 64 256 2 2 &
+for x in $(ls /sys/block); do
+
+case $x in
+    dm* | loop* )
+        # encrypted and/or logical partitions
+        iotweak none /sys/block/$x 512 128 128 2 1 &
+    ;;
+    mmcblk* )
+        # exposed physical devices
+        iotweak none /sys/block/$x 32 1024 32 0 2 &
+    ;;
+    sd* )
+        iotweak mq-deadline /sys/block/$x 1024 512 512 0 2 &
+    ;;
+esac
 done
-if [ $hasdm == 0 ]; then
-    # exposed physical device (no dm-X)
-    iotweak /sys/block/mmcblk0 1024 64 256 2 2 &
-    else
-    # underlying physical device (with dm-X)
-    for x in /sys/block/mmcblk0 /sys/block/sd*; do
-        iotweak $x 1024 64 256 2 2 &
-    done
-fi
 
-# exposed physical external sd card
-iotweak /sys/block/mmcblk1 256 256 256 2 2 &
-
-unset q w x hasdm iotweak
+unset q w x iotweak
 }
 
 #===================================================#
-#===================================================#
+
+# Module 8: interrupts and scheduling optimizations
+
+M8(){
+
+LITTLE_CPUS="0-5"
+BIG_CPUS="6-7"
+LITTLE_MASK_HEX=3f
+BIG_MASK_HEX=c0
+
+### Workqueue CPU containment (LITTLE cores)
+for wq in /sys/devices/virtual/workqueue/*; do
+    [ -e $wq/cpumask ] && echo $LITTLE_CPUS > $wq/cpumask
+done
+
+### IRQ affinity: WLAN → LITTLE cores
+for irq in $(grep -iE 'wlan|wifi|cnss|ath|qcawifi' /proc/interrupts | awk '{print $1}' | tr -d ':'); do
+    echo $LITTLE_MASK_HEX > /proc/irq/$irq/smp_affinity
+done
+
+### IRQ affinity: storage → LITTLE cores
+for irq in $(grep -iE 'mmc|sdhci|ufs|block|scsi' /proc/interrupts | awk '{print $1}' | tr -d ':'); do
+    echo $LITTLE_MASK_HEX > /proc/irq/$irq/smp_affinity
+done
+
+### IRQ affinity: touch & display → BIG cores
+for irq in $(grep -iE 'touch|ts_|fts|goodix|synaptics|sec_touch|mdss|dpu|drm|display|vsync' \
+             /proc/interrupts | awk '{print $1}' | tr -d ':'); do
+    echo $BIG_MASK_HEX > /proc/irq/$irq/smp_affinity
+done
+
+### RPS / XPS + net RX softirq containment (LITTLE cores)
+for q in /sys/class/net/*/queues/rx-*; do
+    echo $LITTLE_MASK_HEX > $q/rps_cpus
+    echo 4096 > $q/rps_flow_cnt
+done
+
+for q in /sys/class/net/*/queues/tx-*; do
+    echo $LITTLE_MASK_HEX > $q/xps_cpus
+done
+
+### cgroup (cpuctl) uclamp-based scheduling policy
+CG=/dev/cpuctl
+[ ! -d $CG ] && return
+
+# foreground / top-app: full range + latency sensitive
+echo 0   > $CG/top-app/cpu.uclamp.min
+echo 1024 > $CG/top-app/cpu.uclamp.max
+echo 1   > $CG/top-app/cpu.uclamp.latency_sensitive
+echo 0   > $CG/top-app/cpu.uclamp.sched_boost_no_override
+
+# foreground (non-top): moderate floor
+echo 128 > $CG/foreground/cpu.uclamp.min
+echo 1024 > $CG/foreground/cpu.uclamp.max
+echo 1   > $CG/foreground/cpu.uclamp.latency_sensitive
+
+# system: capped but responsive
+echo 64  > $CG/system/cpu.uclamp.min
+echo 768 > $CG/system/cpu.uclamp.max
+echo 0   > $CG/system/cpu.uclamp.latency_sensitive
+
+# background / system-background: LITTLE-biased, no boosts
+for g in background system-background; do
+    echo 0   > $CG/$g/cpu.uclamp.min
+    echo 384 > $CG/$g/cpu.uclamp.max
+    echo 0   > $CG/$g/cpu.uclamp.latency_sensitive
+done
+
+# camera / nnapi / dex2oat: burst-friendly but bounded
+for g in camera-daemon nnapi-hal dex2oat; do
+    echo 128 > $CG/$g/cpu.uclamp.min
+    echo 896 > $CG/$g/cpu.uclamp.max
+    echo 1   > $CG/$g/cpu.uclamp.latency_sensitive
+done
+
+}
+    
 #===================================================#
 
 prep(){
 
 np=/dev/null
-
-which busybox > $np
-
-[ $? != 0 ] && echo "No busybox found, please install it first. If you just installed, a reboot may be necessary." && exit 1
-
-alias_list="mountpoint awk echo grep chmod fstrim cat mount uniq date"
-
-for x in $alias_list; do
-    alias $x="busybox $x";
-done
-
 marker="/data/lastrun_$scriptname"
 
 if [ $dryrun -eq 0 ]; then touch $marker; echo $(date) > $marker; fi
@@ -314,6 +388,10 @@ if [ $dryrun -eq 0 ]; then
 wr(){
     [ -e "$1" ] && echo -e "$2" > "$1" || \
     echo "ERROR: Cannot write $2 to $1."
+}
+
+wrs(){ # silent wr
+    [ -e "$1" ] && echo -e "$2" > "$1"
 }
 
 wrl(){
