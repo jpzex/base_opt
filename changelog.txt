@@ -1,0 +1,12 @@
+- General: Added new special write function wrc (writes only if the new value is different from the current).
+- General: Fixed dump and dryrun features for special write functions wrs and wrc.
+- General: Improved code execution speed by caching some lists and file contents.
+- General: Multiple logic changed introducing more efficient loops, conditionals and minimizing sub-shells favoring built-in commands.
+
+- M1: Added filesystem check to ignore read-only and apex mounts.
+
+- M2: Adjusted values for a more reliable network and improved system stability.
+
+- M4: New parameters + smart choice logic to improve code execution speed trimming unnecessary checks for logical partitions.
+
+- M8: Added system latency sensitive processes with HMP aware task scheduling, background tasks segregation and process priority optimizations.
