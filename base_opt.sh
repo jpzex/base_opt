@@ -1,31 +1,44 @@
 # base_opt.sh
-# Version 1.2
-# 2026-03-04 @ 21:22 (UTC)
-# ID: fnw0f
+# Version 1.2.1
+# 2026-03-12 @ 07:27 (UTC)
+# ID: t3m6d
 # Do not steal
 # Written by @jpzex (XDA & Telegram)
 # with help of @InoCity (Telegram)
 # and ChatGPT (proper vibe coding is so real, guys)
 # Use at your own risk!
 
-#set -xv # debug
-
 ##### USER SET VARIABLES #####
 
-# Dump mode (0 or 1): save a log of before and after for every value to be changed.
+# Dump mode (0 or 1): save a log file showing everything the script is meant to change. Check at the end of the script for more info.
 
 dump=0
 
-# Dry run mode (0 or 1): do not apply any value, print on screen what it would change.
+# Dry run mode (0 or 1): if dump=1, it will take note of everything that would change but won't apply anything.
 
 dryrun=0
 
+# Debug run (0 or 1): print on screen the duration of each script step. Even though it is completely independent from dryrun or dump, they make the script run slower so the timing will be delayed a few ms.
+
+debug=0
+
 ##### DO NOT EDIT BELOW THIS LINE #####
+
+#set -xv # debug
 
 scriptname=base_opt
 
 # Generic optimizations.
 # May not affect battery usage, just remove bottlenecks.
+
+debug_run(){
+
+time_run M1
+time_run M2
+time_run M4
+time_run M8
+
+}
 
 main_opt(){
 
@@ -35,24 +48,21 @@ M4
 M8
 
 }
-# The others are present on batt_opt and game_opt
-# and var() runs before main_opt() to prepare the functions
-# and variables that will be used.
 
 #===================================================#
 
 # Module 1: Reduce overhead with new mount options 
 
 M1(){
-local flags x
+local flags x mnt_list mnt_dev mnt_path mnt_fs
     if [ $dryrun -eq 0 ]; then
-        local mnt_list=$(grep -E ' ext4 | f2fs | erofs ' /proc/mounts | awk '{print $1"&"$2"&"$3}' | sed 's/\/$//' | uniq)
-        for x in $mnt_list; do
-            local mnt_dev=$(echo "$x" | cut -d '&' -f 1)
+        local mnt_list="$(grep -E ' ext4 | f2fs | erofs ' /proc/mounts | grep -Ev ' ro,| /apex/' | awk '{print $1"&"$2"&"$3}' | sed 's/\/$//' | uniq)"
+        for x in "$mnt_list"; do
+            mnt_dev=$(echo "$x" | cut -d '&' -f 1)
             echo "$mnt_dev" | grep -E '/loop|/dm-' >> "$np" && continue
-            local mnt_path=$(echo "$x" | cut -d '&' -f 2)
+            mnt_path=$(echo "$x" | cut -d '&' -f 2)
             mountpoint -q "$mnt_path" || continue 
-            local mnt_fs=$(echo "$x" | cut -d '&' -f 3)
+            mnt_fs=$(echo "$x" | cut -d '&' -f 3)
             case "$mnt_fs" in
                 ext4 )
                     flags=commit=10 ;;
@@ -64,9 +74,8 @@ local flags x
                     continue ;;
             esac
             mount -o remount,noatime,nodiratime,$flags "$mnt_path"
-            command -v fstrim >> "$np" && fstrim "$mnt_path"
+            command -v fstrim > "$np" && fstrim "$mnt_path"
         done
-    unset mnt_list x flags
     fi
 }
 
@@ -75,10 +84,8 @@ local flags x
 # Module 2: Sysctl Tweaks for better memory management and improved networking bandwidth and stability
 
 M2(){
-
-local sys=/proc/sys
-local x
-local sysctl_list=$( echo "
+local key val
+local sysctl_list='
 
 # FS
 fs.aio-max-nr = 262144
@@ -92,12 +99,12 @@ kernel.bpf_stats_enabled = 0
 kernel.ctrl-alt-del = 0
 kernel.dmesg_restrict = 1
 kernel.ftrace_dump_on_oops = 0
-kernel.hung_task_timeout_secs = 0
+kernel.hung_task_timeout_secs = 120
 kernel.perf_cpu_time_max_percent = 1
 kernel.perf_event_max_sample_rate = 1
 kernel.perf_event_paranoid = 3
 kernel.print-fatal-signals = 0
-kernel.printk = 0 0 0 0
+kernel.printk = 1 1 1 1
 kernel.printk_delay = 0
 kernel.printk_devkmsg = off
 kernel.printk_ratelimit = 0
@@ -108,11 +115,11 @@ kernel.sched_schedstats = 0
 kernel.sched_tunable_scaling = 1
 kernel.sched_util_clamp_max = 1024
 kernel.sched_util_clamp_min = 0
-kernel.soft_watchdog = 0
+kernel.soft_watchdog = 1
 kernel.softlockup_panic = 0
 kernel.tracepoint_printk = 0
-kernel.warn_limit = 0
-kernel.watchdog = 0
+kernel.warn_limit = 100
+kernel.watchdog = 1
 
 # Net core
 net.core.busy_read = 0
@@ -151,8 +158,8 @@ net.ipv4.tcp_retries2 = 8
 net.ipv4.tcp_rfc1337 = 0
 net.ipv4.tcp_sack = 1
 net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_syn_retries = 2
-net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 4
+net.ipv4.tcp_synack_retries = 3
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_window_scaling = 1
 
@@ -165,23 +172,30 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 600
 
 # VM (non-memory steering)
 vm.block_dump = 0
-vm.extfrag_threshold = 1000
+vm.extfrag_threshold = 500
 vm.laptop_mode = 0
 vm.oom_kill_allocating_task = 0
 vm.oom_dump_tasks = 0
 vm.panic_on_oom = 0
 vm.stat_interval = 10
 vm.watermark_scale_factor = 100
+'
 
-
-" | tr ' ' '&')
-
-for x in $sysctl_list; do
-local detr=$(echo $x | tr '&' ' ')
-local key=$(echo $detr | cut -d '=' -f 1 | tr '.' '/')
-local value=$(echo $detr | cut -d '=' -f 2)
-wrs $sys/$key "$value"
+apply_sysctl() {
+echo "$1" | while IFS= read -r line; do
+    case "$line" in
+        ""|\#*) continue ;;
+    esac
+    key=${line%%=*}
+    val=${line#*=}
+    key=$(echo "$key" | awk '{$1=$1;print}')
+    val=$(echo "$val" | awk '{$1=$1;print}')
+    key=${key//./\/}
+    wrc "/proc/sys/$key" "$val"
 done
+}
+
+apply_sysctl "$sysctl_list"
 
 }
 
@@ -191,19 +205,31 @@ done
 
 M4(){
 
+local x skip
+
 iotweak(){
-local q=$1/queue
+local q w hw
+q=$1/queue
+w="wrc $q"
 
-if [ -d $q ]; then
-    local w="wr $q/iosched"
-    if grep -q "$2" "$q/scheduler"; then
-    case "$2" in
-
-    none)
-       wr $q/scheduler none
-    ;;
+read hw < $q/max_hw_sectors_kb
+if [ $3 -le $hw ]; then
+    $w/max_sectors_kb $3; fi      # 128 default
+    $w/nr_requests $4              # 128 default
+    $w/read_ahead_kb $5            # 128 default
+    $w/nomerges $6                 # 0 merge, 1 simple only, 2 nomerge
+    $w/rq_affinity $7              # 1 group, 2 core
+    $w/iostats 0                   # decrease overhead
+    $w/add_random 0                # help create randomness
+    $w/rotational 0                 # 0 flash, 1 hdd
     
-    mq-deadline)
+    [ $8 -eq 1 ] && return
+
+    w="wrs $q/iosched"
+    read sc < $q/scheduler
+    case "$sc" in
+    
+    *mq-deadline*)
         wr $q/scheduler mq-deadline
         $w/fifo_batch 32
         $w/front_merges 1
@@ -212,7 +238,7 @@ if [ -d $q ]; then
         $w/writes_starved 16
     ;;
     
-    cfq)
+    *cfq*)
         wr $q/scheduler cfq
         $w/slice_idle 0
         $w/back_seek_max 1048576
@@ -228,7 +254,7 @@ if [ -d $q ]; then
         $w/quantum 8
     ;;
     
-    deadline)
+    *deadline*)
         wr $q/scheduler deadline
         $w/fifo_batch 32
         $w/front_merges 1
@@ -237,7 +263,7 @@ if [ -d $q ]; then
         $w/writes_starved 16
     ;;
 
-    bfq)
+    *bfq*)
         wr $q/scheduler bfq
         $w/back_seek_max 0
         $w/low_latency 0
@@ -247,46 +273,34 @@ if [ -d $q ]; then
     ;;
 
     esac
-    fi
-    
-    w="wrl $q"
-    if [ "$3" -le "$(cat $q/max_hw_sectors_kb)" ]; then
-    $w/max_sectors_kb $3; fi       # 128 default
-    $w/nr_requests $4              # 128 default
-    $w/read_ahead_kb $5            # 128 default
-    $w/nomerges $6                 # 0 merge, 1 simple only, 2 nomerge
-    $w/rq_affinity $7              # 1 group, 2 core
-    $w/iostats 0                   # decrease overhead
-    $w/add_random 0                # help create randomness
-    $w/rotational 0                # 0 flash, 1 hdd
-    
-fi
 }
 
-for x in $(ls /sys/block); do
-    [ -e "$x" ] || continue
-case $x in
-    dm* | loop* )
+local blocks="$(ls /sys/block | grep -E 'mmcblk|sd|loop|dm')"
+for x in $blocks; do
+case /sys/block/$x in
+    /sys/block/mmcblk* )
+        # Usually MicroSD or internal EMMC
+        skip=0
+        iotweak /sys/block/$x mq-deadline 128 64 32 0 2 $skip
+    ;;
+    /sys/block/sd* )
+        # Usually UFS partitions
+        skip=0
+        iotweak /sys/block/$x mq-deadline 512 256 256 0 2 $skip
+    ;;
+    /sys/block/dm* | /sys/block/loop* )
         # encrypted and/or logical partitions
-        iotweak /sys/block/$x none 512 128 128 2 1
-    ;;
-    mmcblk* )
-        # exposed physical devices
-        iotweak /sys/block/$x none 32 1024 32 0 2
-    ;;
-    sd* )
-        # Physical MicroSD Card partition (s?)
-        iotweak /sys/block/$x mq-deadline 1024 512 512 0 2
+        skip=1
+        iotweak /sys/block/$x none 256 128 256 1 2 $skip
     ;;
 esac
 done
 
-unset q w x
 }
 
 #===================================================#
 
-# Module 8: interrupts and scheduling optimizations
+# Module 8: Dynamic SoC aware task scheduling optimization
 M8(){
 
 # detect clusters separated by |
@@ -308,8 +322,6 @@ fi
 done
 IFS="$OLDIFS"
 
-local cpu="/sys/devices/system/cpu"
-
 local WEAK=""
 local STRONG=""
 local MID=""
@@ -324,8 +336,8 @@ IFS='
 for x in $CLUSTERS; do
     local first_cpu="${x%% *}"
     local freq=0
-    if [ -r "$cpu/cpu$first_cpu/cpufreq/cpuinfo_min_freq" ]; then
-        read -r freq < "$cpu/cpu$first_cpu/cpufreq/cpuinfo_min_freq"
+    if [ -r "$cpu_base/cpu$first_cpu/cpufreq/cpuinfo_min_freq" ]; then
+        read -r freq < "$cpu_base/cpu$first_cpu/cpufreq/cpuinfo_min_freq"
     fi
     [ -z "$freq" ] && freq=0
 
@@ -381,22 +393,30 @@ for wq in /sys/devices/virtual/workqueue/*; do
 done
 
 # IRQ affinity
-
-set_irq_mask() {
+local cacheirq="$(cat /proc/interrupts)"
+set_irq_mask(){
     local irq
-    for irq in $(grep -iE "$1" /proc/interrupts | awk '{print $1}' | tr -d ':'); do
+    for irq in $(echo "$cacheirq" | grep -iE "$1" | awk '{print $1}' | tr -d ':'); do
         wrs /proc/irq/$irq/smp_affinity "$2"
     done
 }
 
-# WLAN and storage to ECO_MASK
-set_irq_mask "wlan|wifi|cnss|ath|qcawifi|mmc|sdhci|ufs|block|scsi" "$ECO_MASK"
+# WLAN, storage and background / IO IRQs to ECO_MASK
+local IRQ_ECO_PATTERN="wlan|wifi|WLAN_CE|cnss|ath|ipa|qcawifi|rmnet|net|usb|ufs|mmc|sdhci|block|scsi|sdio|glink|glink-native|smp2p|ipcc|modem|bam|qmi|ufshcd|spi|spi_geni|i2c|i2c_geni|i3c|serial|serial_geni|uart|geni|dwc3|xhci|ehci|phy|pcie|nvme|swr|swr_master|slim|spmi|pmic|pmic_arb|adc|tsens|thermal|charger|battery|rtc|pon|bcl|wdog|ipa_dma|ipa_tx|ipa_rx|msmgpio|gpio|sde_rotator"
+set_irq_mask "$IRQ_ECO_PATTERN" "$ECO_MASK"
 
-# Touch and display to POWER_MASK
-set_irq_mask "touch|ts_|fts|goodix|synaptics|sec_touch|mdss|dpu|drm|display|vsync" "$POWER_MASK"
+# Touch, display and high throughput / latency sensitive IRQs to POWER_MASK
+# IRQ_POWER_PATTERN="touch|ts_|chipone|input|goodix|synaptics|fts|mdss|dsi|dsi_ctrl|drm|kgsl|kgsl_3d|gpu|3d|adreno|display|panel|vsync|crtc|rot|rotator|sec_touch|dpu|sde|mdp|msm_vidc|vidc|venus|video|encoder|decoder|camera|cam_|csid|csiphy|tfe|ope|cci|vfe|jpeg|cpp|isp"
+# set_irq_mask "$IRQ_POWER_PATTERN" "$POWER_MASK"
+
+local fg_procs
+
+for x in "$(ps -A -o name | grep -E 'touch|ts_|chipone|input|goodix|synaptics|fts|mdss|dsi|dsi_ctrl|drm|kgsl|kgsl_3d|gpu|3d|adreno|display|panel|vsync|crtc|rot|rotator|sec_touch|dpu|sde|mdp|msm_vidc|vidc|venus|video|encoder|decoder|camera|cam_|csid|csiphy|tfe|ope|cci|vfe|jpeg|cpp|isp' | grep -Ev '\[' )"; do
+fg_procs+=" $x"; done
+
+return
 
 # RPS / XPS to ECO_MASK
-
 local q
 for q in /sys/class/net/*/queues/rx-*; do
     wrs $q/rps_cpus "$ECO_MASK"
@@ -416,35 +436,97 @@ local CG=/dev/cpuctl
 if [ "$uc" = "1" ]; then
 
     # Top-app (foreground) unrestricted with high priority
-    wrs "$CG/top-app/cpu.uclamp.min" "512"
+    wrs "$CG/top-app/cpu.uclamp.min" "0"
     wrs "$CG/top-app/cpu.uclamp.max" "1024"
     wrs "$CG/top-app/cpu.uclamp.latency_sensitive" "1"
     wrs "$CG/top-app/cpu.uclamp.sched_boost_no_override" "0"
 
     # Critical foreground limited to 75% but latency sensitive
-    wrs "$CG/foreground/cpu.uclamp.min" "512"
+    wrs "$CG/foreground/cpu.uclamp.min" "0"
     wrs "$CG/foreground/cpu.uclamp.max" "768"
     wrs "$CG/foreground/cpu.uclamp.latency_sensitive" "1"
+    wrs "$CG/foreground/cpu.uclamp.sched_boost_no_override" "0"
 
     # System moderate, not latency sensitive
-    wrs "$CG/system/cpu.uclamp.min" "128"
+    wrs "$CG/system/cpu.uclamp.min" "0"
     wrs "$CG/system/cpu.uclamp.max" "512"
     wrs "$CG/system/cpu.uclamp.latency_sensitive" "0"
+    wrs "$CG/system/cpu.uclamp.sched_boost_no_override" "1"
 
     # Non-critical background restricted and not latency sensitive
     for g in background system-background; do
         wrs "$CG/$g/cpu.uclamp.min" "0"
         wrs "$CG/$g/cpu.uclamp.max" "512"
         wrs "$CG/$g/cpu.uclamp.latency_sensitive" "0"
+        wrs "$CG/$g/cpu.uclamp.sched_boost_no_override" "1"
     done
 
     # Camera / NNAPI / dex2oat: burst-friendly and latency sensitive
     for g in camera-daemon nnapi-hal dex2oat; do
-        wrs "$CG/$g/cpu.uclamp.min" "256"
-        wrs "$CG/$g/cpu.uclamp.max" "768"
+        wrs "$CG/$g/cpu.uclamp.min" "0"
+        wrs "$CG/$g/cpu.uclamp.max" "960"
         wrs "$CG/$g/cpu.uclamp.latency_sensitive" "1"
+        wrs "$CG/$g/cpu.uclamp.sched_boost_no_override" "0"
     done
 fi
+
+# UI related critical Android processes
+
+local CRITICAL_PROCS="
+audioserver
+cameraserver
+com.android.systemui
+drmserver
+gpuservice
+hwcomposer
+hwservicemanager
+init
+inputflinger
+keystore2
+lmkd
+logd
+mediaserver
+renderengine
+servicemanager
+statsd
+surfaceflinger
+system_server
+systemui
+tombstoned
+ueventd
+vold
+zygote
+zygote64
+"
+
+local pname pid
+
+for pname in $CRITICAL_PROCS; do
+    for pid in "$(pidof $pname 2>/dev/null)"; do
+        [ -z "$pid" ] && continue
+        renice -n -15 -p $pid > $np 2>&1
+        #taskset -p $POWER_MASK $pid > $np 2>&1
+
+        if [ "$uc" = "1" ]; then
+            CG=/dev/cpuctl
+            if [ -e "$CG/foreground/tasks" ]; then
+                wrs "$CG/foreground/tasks" $pid
+            fi
+        fi
+    done
+done
+for pid in "$fg_procs"; do
+        [ -z "$pid" ] && continue
+        renice -n -10 -p $pid > $np 2>&1
+        #taskset -p $POWER_MASK $pid > $np 2>&1
+
+        if [ "$uc" = "1" ]; then
+            CG=/dev/cpuctl
+            if [ -e "$CG/foreground/tasks" ]; then
+                wrs "$CG/foreground/tasks" $pid
+            fi
+        fi
+done
 
 }
 
@@ -465,7 +547,7 @@ for x in /sys/devices/system/cpu/cpu[0-9]*; do
     [ -d "$x" ] && tc=$((tc+1))
 done
 
-local cpu_base="/sys/devices/system/cpu"
+cpu_base="/sys/devices/system/cpu"
 
 cl=""
 local current_cluster prev_min_freq
@@ -537,8 +619,10 @@ search(){ readf "$2" | grep "$1" > $np; }
 
 #=DUMP=AND=DRY=RUN=START============================#
 
+local have
+
 if [ "$dryrun" -eq 0 ]; then
-    local have="have"
+    have="have"
 
 wr(){
     [ -e "$1" ] && echo -e "$2" > "$1" || \
@@ -546,10 +630,19 @@ wr(){
 }
 
 wrs(){ # silent wr
-    [ -e "$1" ] && echo -e "$2" > "$1"
+    if [ -e "$1" ]; then
+        echo -e "$2" > "$1" 2>&1
+    fi
 }
 
-wrl(){
+wrc(){ # silently writes if current value is different from new
+if [ -e "$1" ]; then
+v=$(cat "$1")
+[ "$v" != "$2" ] && echo -e "$2" > "$1" 2>&1
+fi
+}
+
+wrl(){ # unlock, write, lock
     [ -e "$1" ] && chmod 666 "$1" && \
     echo -e "$2" > "$1" && chmod 444 "$1"
 }
@@ -558,12 +651,12 @@ else
     have="have not"
     wr(){ [ -e "$1" ] && echo -e "WR : $2 > $1"; }
     wrl(){ [ -e "$1" ] && echo -e "WRL: $2 > $1"; }
+    wrs(){ [ -e "$1" ] && echo -e "WRS: $2 > $1"; }
 fi
 
 # start dump
 
-local dpath
-if [ "$dump" -eq 1 ]; then
+if [ "$dump" -eq "1" ]; then
     dpath=/data/$scriptname
     for x in $dpath*; do
         [ -e "$x" ] && rm "$x"
@@ -574,16 +667,43 @@ if [ "$dump" -eq 1 ]; then
     wr(){
     if [ "$dump" -eq 1 ]; then
         if [ -e "$1" ]; then
-            echo -e "WR - A: $1 = $(cat $1)\nWR - B: $1 = $2\n" >> $dpath
+            v=$(cat "$1")
+            echo -e "WR - A: $1 = $v\nWR - B: $1 = $2\n" >> $dpath
             [ $dryrun -eq 0 ] && echo -e "$2" > "$1" || echo "$1 write error.";
         fi
      fi
     }
 
-    wrl(){
+    wrs(){
+local v
     if [ "$dump" -eq 1 ]; then
         if [ -e "$1" ]; then
-            echo -e "WRL - A: $1 = $(cat $1)\nWRL - B: $1 = $2\n" >> $dpath
+            v=$(cat "$1")
+            echo -e "WRS - A: $1 = $v\nWRS - B: $1 = $2\n" >> $dpath
+            [ $dryrun -eq 0 ] && echo -e "$2" > "$1" 2>&1
+        fi
+     fi
+    }
+
+    wrc(){
+local v
+    if [ "$dump" -eq 1 ]; then
+        if [ -e "$1" ]; then
+            v=$(cat "$1")
+            if [ "$v" != "$2" ]; then
+            echo -e "WRC - A: $1 = $v\nWRC - B: $1 = $2\n" >> $dpath
+else echo -e "WRC - A: $1 = $v\nWRC - B: $1 = $2\n (no write)" >> $dpath; fi
+            [ $dryrun -eq 0 ] && echo -e "$2" > "$1" 2>&1
+        fi
+     fi
+    }
+
+    wrl(){
+local v
+    if [ "$dump" -eq 1 ]; then
+        if [ -e "$1" ]; then
+            v=$(cat "$1")
+            echo -e "WRL - A: $1 = $v\nWRL - B: $1 = $2\n" >> $dpath
              [ $dryrun -eq 0 ] && chmod 666 $1 && echo "$2" > "$1" && chmod 444 $1
         fi
     fi
@@ -593,8 +713,18 @@ fi
 
 # end dump
 
+time_run() {
+t=$(date +%s%3N)
+"$@"
+echo "$1: $((($(date +%s%3N)-t))) ms"
+}
+
 } # end vars
 
+if [ $debug -eq "1" ]; then
+vars && debug_run
+else
 vars && main_opt
+fi
 
-unset main_opt scriptname alias_list dump dryrun dpath wr wrl readf search have np
+unset scriptname dump dryrun have np
