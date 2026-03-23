@@ -1,7 +1,7 @@
 # base_opt.sh
-# Version 1.2.1
-# 2026-03-12 @ 07:27 (UTC)
-# ID: t3m6d
+# Version 1.2.2
+# 2026-03-23 @ 18:50 (UTC)
+# ID: b2ij3
 # Do not steal
 # Written by @jpzex (XDA & Telegram)
 # with help of @InoCity (Telegram)
@@ -26,6 +26,17 @@ debug=0
 
 #set -xv # debug
 
+Changelog="
+Version: 1.2.2
+- M1: changed filtering rules and command args for improved execution speed and proper mount point selection
+- M1: removed erofs flags because fs is always RO
+- M2: moved some sysctl keys to batt/game due to script philosophy misalignment
+- M2: improved reliability of the value setting function
+- M8: changed selection of threads/processes to get cpuset to power cores to ensure proper load balancing
+- M8: prevent background process boosting
+"
+unset Changelog
+
 scriptname=base_opt
 
 # Generic optimizations.
@@ -33,10 +44,10 @@ scriptname=base_opt
 
 debug_run(){
 
-time_run M1
-time_run M2
-time_run M4
-time_run M8
+TIME M1
+TIME M2
+TIME M4
+TIME M8
 
 }
 
@@ -54,29 +65,24 @@ M8
 # Module 1: Reduce overhead with new mount options 
 
 M1(){
-local flags x mnt_list mnt_dev mnt_path mnt_fs
-    if [ $dryrun -eq 0 ]; then
-        local mnt_list="$(grep -E ' ext4 | f2fs | erofs ' /proc/mounts | grep -Ev ' ro,| /apex/' | awk '{print $1"&"$2"&"$3}' | sed 's/\/$//' | uniq)"
-        for x in "$mnt_list"; do
-            mnt_dev=$(echo "$x" | cut -d '&' -f 1)
-            echo "$mnt_dev" | grep -E '/loop|/dm-' >> "$np" && continue
-            mnt_path=$(echo "$x" | cut -d '&' -f 2)
-            mountpoint -q "$mnt_path" || continue 
-            mnt_fs=$(echo "$x" | cut -d '&' -f 3)
-            case "$mnt_fs" in
-                ext4 )
-                    flags=commit=10 ;;
-                f2fs )
-                    flags=flush_merge,background_gc=on ;;
-                erofs )
-                    flags=noacl,nouser_xattr ;;
-                * )
-                    continue ;;
-            esac
-            mount -o remount,noatime,nodiratime,$flags "$mnt_path"
-            command -v fstrim > "$np" && fstrim "$mnt_path"
-        done
-    fi
+local flags x mnt_list mnt_dev mnt_path mnt_fs 
+if [ $dryrun -eq 0 ]; then
+    mnt_list="$(grep -E ' ext4 | f2fs ' /proc/mounts | grep -Ev ' ro,| /apex/|/storage/emulated/0' | awk '{print $1"&"$2"&"$3}' | sed 's/\/$//' | uniq)"
+    for x in $mnt_list; do
+        IFS='&' read -r mnt_dev mnt_path mnt_fs <<< "$x" 
+        mountpoint -q "$mnt_path" || continue
+        case "$mnt_fs" in
+            ext4 )
+                flags=commit=10 ;;
+            f2fs )
+                flags=flush_merge,background_gc=on ;;
+            * )
+                continue ;;
+        esac
+        mount -o remount,noatime,nodiratime,$flags "$mnt_path"
+        command -v fstrim > "$np" && fstrim "$mnt_path"
+    done
+fi
 }
 
 #===================================================#
@@ -172,13 +178,11 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 600
 
 # VM (non-memory steering)
 vm.block_dump = 0
-vm.extfrag_threshold = 500
 vm.laptop_mode = 0
 vm.oom_kill_allocating_task = 0
 vm.oom_dump_tasks = 0
 vm.panic_on_oom = 0
 vm.stat_interval = 10
-vm.watermark_scale_factor = 100
 '
 
 apply_sysctl() {
@@ -191,7 +195,7 @@ echo "$1" | while IFS= read -r line; do
     key=$(echo "$key" | awk '{$1=$1;print}')
     val=$(echo "$val" | awk '{$1=$1;print}')
     key=${key//./\/}
-    wrc "/proc/sys/$key" "$val"
+    wrs "/proc/sys/$key" "$val"
 done
 }
 
@@ -409,6 +413,9 @@ set_irq_mask "$IRQ_ECO_PATTERN" "$ECO_MASK"
 # IRQ_POWER_PATTERN="touch|ts_|chipone|input|goodix|synaptics|fts|mdss|dsi|dsi_ctrl|drm|kgsl|kgsl_3d|gpu|3d|adreno|display|panel|vsync|crtc|rot|rotator|sec_touch|dpu|sde|mdp|msm_vidc|vidc|venus|video|encoder|decoder|camera|cam_|csid|csiphy|tfe|ope|cci|vfe|jpeg|cpp|isp"
 # set_irq_mask "$IRQ_POWER_PATTERN" "$POWER_MASK"
 
+IRQ_POWER_PATTERN="touch|ts_|chipone|input|goodix|synaptics|fts|mdss|dsi|dsi_ctrl|drm|kgsl|kgsl_3d|gpu|3d|adreno|display|panel|vsync|crtc|rot|rotator|sec_touch|dpu|sde|mdp|msm_vidc|vidc|venus|video|encoder|decoder|camera|cam_|csid|csiphy|tfe|ope|cci|vfe|jpeg|cpp|isp"
+set_irq_mask "$IRQ_POWER_PATTERN" "$POWER_MASK"
+
 local fg_procs
 
 for x in "$(ps -A -o name | grep -E 'touch|ts_|chipone|input|goodix|synaptics|fts|mdss|dsi|dsi_ctrl|drm|kgsl|kgsl_3d|gpu|3d|adreno|display|panel|vsync|crtc|rot|rotator|sec_touch|dpu|sde|mdp|msm_vidc|vidc|venus|video|encoder|decoder|camera|cam_|csid|csiphy|tfe|ope|cci|vfe|jpeg|cpp|isp' | grep -Ev '\[' )"; do
@@ -527,6 +534,10 @@ for pid in "$fg_procs"; do
             fi
         fi
 done
+
+# limit background
+wrc /dev/stune/background/schedtune.prefer_idle 0
+wrc /dev/stune/background/schedtune.boost -10
 
 }
 
@@ -713,7 +724,7 @@ fi
 
 # end dump
 
-time_run() {
+TIME() {
 t=$(date +%s%3N)
 "$@"
 echo "$1: $((($(date +%s%3N)-t))) ms"

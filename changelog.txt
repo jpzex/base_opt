@@ -1,12 +1,8 @@
-- General: Added new special write function wrc (writes only if the new value is different from the current).
-- General: Fixed dump and dryrun features for special write functions wrs and wrc.
-- General: Improved code execution speed by caching some lists and file contents.
-- General: Multiple logic changed introducing more efficient loops, conditionals and minimizing sub-shells favoring built-in commands.
+## v1.2.2
 
-- M1: Added filesystem check to ignore read-only and apex mounts.
-
-- M2: Adjusted values for a more reliable network and improved system stability.
-
-- M4: New parameters + smart choice logic to improve code execution speed trimming unnecessary checks for logical partitions.
-
-- M8: Added system latency sensitive processes with HMP aware task scheduling, background tasks segregation and process priority optimizations.
+- M1: changed filtering rules and command args for improved execution speed and proper mount point selection
+- M1: removed erofs flags because fs is always RO
+- M2: moved some sysctl keys to batt/game due to script philosophy misalignment
+- M2: improved reliability of the value setting function
+- M8: changed selection of threads/processes to get cpuset to power cores to ensure proper load balancing
+- M8: prevent background process boosting
