@@ -1,8 +1,12 @@
-## v1.2.2
+##Version: 1.2.3
 
-- M1: changed filtering rules and command args for improved execution speed and proper mount point selection
-- M1: removed erofs flags because fs is always RO
-- M2: moved some sysctl keys to batt/game due to script philosophy misalignment
-- M2: improved reliability of the value setting function
-- M8: changed selection of threads/processes to get cpuset to power cores to ensure proper load balancing
-- M8: prevent background process boosting
+- General: Improved dynamically created lists and variables debug when dryrun=1.
+- General: Change boot trigger from boot-completed to service to improve compatibility with older/other root solutions.
+- M1: Remount partitions with each flags separately to improve stability.
+- M2: Remove redundant, ineffective or ambiguous tunables improving safety.
+- M2: Adjust networking buffers for more efficient memory usage, improved latency and stability on wireless networks.
+- M2: Smaller VM stat interval to improve system responsiveness.
+- M4: Improve code logic for I/O scheduler setting (much faster!)
+- M4: Add ZRAM blockdev tweak (maybe useful?)
+- M5: NEW! sysfs tunables to minimize tracing overhead.
+- M8: Improve IRQ redistribution logic, spread the IRQ type matching SoC clusters power rating (up to 3 levels).
