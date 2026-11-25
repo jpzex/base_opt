@@ -1,12 +1,13 @@
-##Version: 1.2.3
+## Version: 1.3
 
-- General: Improved dynamically created lists and variables debug when dryrun=1.
-- General: Change boot trigger from boot-completed to service to improve compatibility with older/other root solutions.
-- M1: Remount partitions with each flags separately to improve stability.
-- M2: Remove redundant, ineffective or ambiguous tunables improving safety.
-- M2: Adjust networking buffers for more efficient memory usage, improved latency and stability on wireless networks.
-- M2: Smaller VM stat interval to improve system responsiveness.
-- M4: Improve code logic for I/O scheduler setting (much faster!)
-- M4: Add ZRAM blockdev tweak (maybe useful?)
-- M5: NEW! sysfs tunables to minimize tracing overhead.
-- M8: Improve IRQ redistribution logic, spread the IRQ type matching SoC clusters power rating (up to 3 levels).
+- General: Add root privilege verification at startup and rewrite the entire script for strict POSIX shell compatibility, eliminating external subshells during sysfs reads for much faster execution.
+- General: Restructure dump and dry-run modes into four clear execution states and add command-level logging so remount operations are fully recorded before being applied.
+- General: Enable execution timing diagnostics by default and temporarily disable Module 8 during standard runs while keeping it active for benchmark testing.
+- M1: Broaden exclusion of emulated storage paths, drop redundant background garbage collection overrides on F2FS, log remount operations cleanly, and run fstrim asynchronously once per partition instead of repeating it for every mount flag.
+- M2: Switch sysctl updates to conditional writes with path existence checks so values are only written when they actually differ, reducing unnecessary kernel overhead.
+- M2: Tune network socket polling, disable slow-start after idle, allow high-order network allocations, and relax kernel printk verbosity for better wireless responsiveness and diagnostics.
+- M4: Fix block device discovery to properly include ZRAM, enable active I/O scheduler tuning on UFS/SCSI storage, and add a short polling wait so scheduler-specific tunables apply reliably after switching schedulers.
+- M4: Switch all storage queue updates to conditional writes and refine queue depths, read-ahead sizes, merge behavior, and deadline expiration targets to lower I/O latency.
+- M5: Automatically detect the active kernel tracing directory path, safely guard sub-instance iteration, and switch tracing shutdown toggles to conditional writes.
+- M8: Rework SoC topology detection to identify online CPU cores dynamically by maximum frequency and assign cluster-aware CPU boundaries across top-app, foreground, and background groups.
+- M8: Enable cluster-matched IRQ routing using single-pass batch filtering, steer network packet processing to efficiency cores, and segregate userspace system processes into foreground and background priority tiers while removing uclamp and schedtune overrides.
